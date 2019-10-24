@@ -1,5 +1,5 @@
 [package]
-name = "mobc"
+name = "mobc-redis"
 version = "0.1.0"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
@@ -7,14 +7,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio-executor = "0.2.0-alpha.6"
+mobc = { path = ".." }
+redis = "0.13.0"
+futures_01 = { version = "0.1", package = "futures"}
 
-[dependencies.futures-preview]
-version = "=0.3.0-alpha.19"
-features = ["compat", "async-await"]
-
-[workspace]
-members = [
-    "redis",
-    "postgres"
-]
+[dev-dependencies]
+tokio = "0.2.0-alpha.6"
