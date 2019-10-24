@@ -16,12 +16,12 @@ async fn do_redis() -> Result<(), Error<RedisError>> {
     async fn ping(pool: Pool<RedisConnectionManager>) -> Result<(), Error<RedisError>> {
         timer::delay_for(Duration::from_secs(1)).await;
         let mut conn = pool.get().await?;
-        let raw_conn = conn.conn.take().unwrap();
+        let raw_conn = conn.take_raw_conn();
         let (raw_conn, pong) = redis::cmd("PING")
             .query_async::<_, String>(raw_conn)
             .compat()
             .await?;
-        conn.conn = Some(raw_conn);
+        conn.set_raw_conn(raw_conn);
 
         println!("{:?}", pong);
         assert_eq!("PONG", pong);

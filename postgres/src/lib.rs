@@ -13,6 +13,7 @@ use tokio_postgres::Socket;
 pub struct PostgresConnectionManager<Tls> {
     config: Config,
     tls: Tls,
+    executor: DefaultExecutor,
 }
 
 impl<Tls> PostgresConnectionManager<Tls> {
@@ -32,6 +33,7 @@ where
     <<Tls as MakeTlsConnect<Socket>>::TlsConnect as TlsConnect<Socket>>::Future: Send,
 {
     type Connection = Client;
+    type 
     type Error = Error;
 
     fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {

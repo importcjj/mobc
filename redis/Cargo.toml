@@ -10,6 +10,7 @@ edition = "2018"
 mobc = { path = ".." }
 redis = "0.13.0"
 futures_01 = { version = "0.1", package = "futures"}
+tokio-executor = "0.2.0-alpha.6"
 
 [dev-dependencies]
 tokio = "0.2.0-alpha.6"

@@ -37,7 +37,7 @@ pub type AnyFuture<T, E> = Box<dyn Future<Output = Result<T, E>> + Unpin + Send>
 pub trait ConnectionManager: Send + Sync + 'static {
     type Connection: Send + 'static;
     type Error: error::Error + Send + 'static;
-    type Executor: Executor;
+    type Executor: TkExecutor + Send + Sync + 'static + Clone;
 
     fn get_executor(&self) -> Self::Executor;
     fn connect(&self) -> AnyFuture<Self::Connection, Self::Error>;
@@ -46,7 +46,7 @@ pub trait ConnectionManager: Send + Sync + 'static {
 }
 
 struct Conn<C> {
-    raw: C,
+    raw: Option<C>,
     id: u64,
     birth: Instant,
 }
@@ -144,35 +144,35 @@ where
     {
         let start = Instant::now();
         let end = start + timeout;
-        let mut internals = self.0.internals.lock().unwrap();
 
         loop {
-            match self.try_get_inner(internals).await {
+            match self.try_get_inner().await {
                 Ok(conn) => {
                     return Ok(conn);
                 }
-                Err(i) => internals = i,
+                Err(_) => (),
             }
-
-            add_connection(&self.0, &mut internals);
+            {
+                let mut internals = self.0.internals.lock().unwrap();
+                add_connection(&self.0, &mut internals);
+            }
+            
         }
     }
 
-    async fn try_get_inner<'a>(
-        &'a self,
-        mut internals: MutexGuard<'a, PoolInternals<M::Connection>>,
-    ) -> Result<PooledConnection<M>, MutexGuard<'a, PoolInternals<M::Connection>>> {
+    async fn try_get_inner(&self) -> Result<PooledConnection<M>, ()> {
         loop {
+            let mut internals = self.0.internals.lock().unwrap();
             if let Some(mut conn) = internals.conns.pop() {
                 establish_idle_connections(&self.0, &mut internals);
                 drop(internals);
 
                 return Ok(PooledConnection {
                     pool: self.clone(),
-                    conn: Some(conn.conn),
+                    conn: conn.conn,
                 });
             } else {
-                return Err(internals);
+                return Err(());
             }
         }
     }
@@ -229,7 +229,7 @@ where
                     let now = Instant::now();
                     let conn = IdleConn {
                         conn: Conn {
-                            raw: conn,
+                            raw: Some(conn),
                             birth: now,
                             id,
                         },
@@ -256,7 +256,20 @@ where
     M: ConnectionManager,
 {
     pool: Pool<M>,
-    conn: Option<Conn<M::Connection>>,
+    conn: Conn<M::Connection>,
+}
+
+impl<M> PooledConnection<M> 
+where
+    M: ConnectionManager,
+{
+    pub fn take_raw_conn(&mut self) -> M::Connection {
+        self.conn.raw.take().unwrap()
+    }
+
+    pub fn set_raw_conn(&mut self, raw: M::Connection)  {
+        self.conn.raw = Some(raw);
+    }
 }
 
 impl<M> Drop for PooledConnection<M>
@@ -274,7 +287,7 @@ where
 {
     type Target = M::Connection;
     fn deref(&self) -> &Self::Target {
-        &self.conn.as_ref().unwrap().raw
+        &self.conn.raw.as_ref().unwrap()
     }
 }
 
@@ -283,6 +296,6 @@ where
     M: ConnectionManager,
 {
     fn deref_mut(&mut self) -> &mut M::Connection {
-        &mut self.conn.as_mut().unwrap().raw
+        self.conn.raw.as_mut().unwrap()
     }
 }

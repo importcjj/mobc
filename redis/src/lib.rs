@@ -9,6 +9,7 @@ use redis::RedisError;
 use redis::RedisFuture;
 use redis::Value;
 use std::sync::Arc;
+use tokio_executor::DefaultExecutor;
 
 pub struct RedisConnectionManager {
     client: Client,
@@ -23,6 +24,11 @@ impl RedisConnectionManager {
 impl ConnectionManager for RedisConnectionManager {
     type Connection = Connection;
     type Error = redis::RedisError;
+    type Executor = DefaultExecutor;
+
+    fn get_executor(&self) -> Self::Executor {
+        DefaultExecutor::current()
+    }
 
     fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
         Box::new(self.client.get_async_connection().compat())
