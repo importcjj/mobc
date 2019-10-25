@@ -192,10 +192,10 @@ where
         let end = Instant::now() + self.0.config.connection_timeout;
         let initial_size = self.0.config.min_idle.unwrap_or(self.0.config.max_size);
 
-        loop  {
+        loop {
             let mut internals = self.0.internals.lock().await;
             if internals.num_conns == initial_size {
-                break
+                break;
             }
         }
 

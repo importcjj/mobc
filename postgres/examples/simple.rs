@@ -12,6 +12,7 @@ async fn do_postgres() -> Result<(), Error<PostgresError>> {
     let manager = PostgresConnectionManager::new(config, NoTls);
     let pool = Pool::new(manager).await?;
 
+
     Ok(())
 }
 
