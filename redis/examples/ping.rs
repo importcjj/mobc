@@ -14,7 +14,7 @@ async fn do_redis() -> Result<(), Error<RedisError>> {
 
     println!("pool was created");
 
-    let max: usize = 10;
+    let max: usize = 100;
 
     async fn ping(pool: Pool<RedisConnectionManager>) -> Result<(), Error<RedisError>> {
         let mut conn = pool.get().await?;
@@ -44,5 +44,5 @@ async fn main() {
     if let Err(e) = do_redis().await {
         println!("some error");
     }
-    loop {}
+    timer::delay_for(Duration::from_secs(100)).await;
 }

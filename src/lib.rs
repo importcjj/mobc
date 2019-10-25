@@ -150,7 +150,7 @@ where
         let end = start + timeout;
 
         loop {
-            println!("get timeout");
+            // println!("get timeout");
             match self.try_get_inner().await {
                 Ok(conn) => {
                     return Ok(conn);
@@ -173,7 +173,7 @@ where
             establish_idle_connections(&self.0, &mut internals);
             drop(internals);
 
-            println!("get success");
+            debug!("get success");
 
             return Ok(PooledConnection {
                 pool: Some(self.clone()),
@@ -188,15 +188,15 @@ where
     where
         Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
     {
-        println!("waiting for initialization");
+        debug!("waiting for initialization");
         let end = Instant::now() + self.0.config.connection_timeout;
-        let mut internals = self.0.internals.lock().await;
         let initial_size = self.0.config.min_idle.unwrap_or(self.0.config.max_size);
 
-        while internals.num_conns != initial_size {
-            // if self.0.cond.wait_until(&mut internals, end).timed_out() {
-            //     return Err(Error::Timeout);
-            // }
+        loop  {
+            let mut internals = self.0.internals.lock().await;
+            if internals.num_conns == initial_size {
+                break
+            }
         }
 
         Ok(())
@@ -231,7 +231,7 @@ async fn establish_idle_connections<M>(
 {
     let min = shared.config.min_idle.unwrap_or(shared.config.max_size);
     let idle = internals.conns.len() as u32;
-    println!(
+    debug!(
         "idle {} min {}, {}, {}",
         idle, min, internals.num_conns, internals.pending_conns,
     );
@@ -255,7 +255,7 @@ where
     where
         M: ConnectionManager,
     {
-        println!("inner add connection");
+        debug!("inner add connection");
         let new_shared = Arc::downgrade(shared);
         shared.config.executor.clone().spawn(Box::pin(async move {
             let shared = match new_shared.upgrade() {
@@ -266,7 +266,7 @@ where
             let conn = shared.manager.connect().await;
             match conn {
                 Ok(conn) => {
-                    println!("adding connection");
+                    debug!("adding connection");
                     let id = CONNECTION_ID.fetch_add(1, Ordering::Relaxed) as u64;
                     let mut internals = shared.internals.lock().await;
 
