@@ -7,7 +7,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+log = "0.4"
 tokio-executor = "0.2.0-alpha.6"
+tokio-timer = "0.3.0-alpha.5"
 
 [dependencies.futures-preview]
 version = "=0.3.0-alpha.19"

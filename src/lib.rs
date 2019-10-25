@@ -7,17 +7,21 @@ pub use futures::compat::Future01CompatExt;
 pub use futures::compat::Stream01CompatExt;
 pub use futures::Future;
 pub use futures::FutureExt;
+use log::debug;
+use futures::lock::::{Mutex, MutexGuard};
 use std::error;
 use std::fmt;
 use std::marker::Unpin;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::channel;
 use std::sync::Arc;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tokio_executor::Executor as TkExecutor;
+use tokio_timer::delay_for;
 
 static CONNECTION_ID: AtomicUsize = AtomicUsize::new(0);
+
 
 pub enum Error<E> {
     Inner(E),
@@ -70,6 +74,7 @@ where
     config: Config<M::Executor>,
     manager: M,
     internals: Mutex<PoolInternals<M::Connection>>,
+    cond: Condvar,
 }
 
 /// A generic connection pool.
@@ -116,9 +121,10 @@ where
             config: config,
             manager: manager,
             internals: Mutex::new(internals),
+            cond: Condvar::new(),
         });
 
-        establish_idle_connections(&shared, &mut shared.internals.lock().unwrap());
+        establish_idle_connections(&shared, &mut shared.internals.lock().await);
 
         Pool(shared)
     }
@@ -146,6 +152,7 @@ where
         let end = start + timeout;
 
         loop {
+            println!("get timeout");
             match self.try_get_inner().await {
                 Ok(conn) => {
                     return Ok(conn);
@@ -153,27 +160,29 @@ where
                 Err(_) => (),
             }
             {
-                let mut internals = self.0.internals.lock().unwrap();
+                let mut internals = self.0.internals.lock().await;
                 add_connection(&self.0, &mut internals);
+                if self.0.cond.wait_until(&mut internals, end).timed_out() {
+                    return Err(Error::Timeout);
+                }
             }
-            
         }
     }
 
     async fn try_get_inner(&self) -> Result<PooledConnection<M>, ()> {
-        loop {
-            let mut internals = self.0.internals.lock().unwrap();
-            if let Some(mut conn) = internals.conns.pop() {
-                establish_idle_connections(&self.0, &mut internals);
-                drop(internals);
+        let mut internals = self.0.internals.lock().await;
+        if let Some(mut conn) = internals.conns.pop() {
+            establish_idle_connections(&self.0, &mut internals);
+            drop(internals);
 
-                return Ok(PooledConnection {
-                    pool: self.clone(),
-                    conn: conn.conn,
-                });
-            } else {
-                return Err(());
-            }
+            println!("get success");
+
+            return Ok(PooledConnection {
+                pool: self.clone(),
+                conn: Some(conn.conn),
+            });
+        } else {
+            return Err(());
         }
     }
 
@@ -181,7 +190,29 @@ where
     where
         Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
     {
+        println!("waiting for initialization");
+        let end = Instant::now() + self.0.config.connection_timeout;
+        let mut internals = self.0.internals.lock().await;
+        let initial_size = self.0.config.min_idle.unwrap_or(self.0.config.max_size);
+
+        while internals.num_conns != initial_size {
+            if self.0.cond.wait_until(&mut internals, end).timed_out() {
+                return Err(Error::Timeout);
+            }
+        }
+
         Ok(())
+    }
+
+    fn put_back(&self, checkout: Instant, mut conn: Conn<M::Connection>) {
+        let mut internals = self.0.internals.lock().await;
+        let conn = IdleConn {
+            conn,
+            idle_start: Instant::now(),
+        };
+        internals.conns.push(conn);
+        self.0.cond.notify_one();
+        println!("put back ok");
     }
 }
 
@@ -193,6 +224,10 @@ fn establish_idle_connections<M>(
 {
     let min = shared.config.min_idle.unwrap_or(shared.config.max_size);
     let idle = internals.conns.len() as u32;
+    println!(
+        "idle {} min {}, {}, {}",
+        idle, min, internals.num_conns, internals.pending_conns,
+    );
     for _ in idle..min {
         add_connection(shared, internals);
     }
@@ -213,6 +248,7 @@ where
     where
         M: ConnectionManager,
     {
+        println!("inner add connection");
         let new_shared = Arc::downgrade(shared);
         shared.config.executor.clone().spawn(Box::pin(async move {
             let shared = match new_shared.upgrade() {
@@ -223,8 +259,10 @@ where
             let conn = shared.manager.connect().await;
             match conn {
                 Ok(conn) => {
+                    println!("adding connection");
                     let id = CONNECTION_ID.fetch_add(1, Ordering::Relaxed) as u64;
-                    let mut internals = shared.internals.lock().unwrap();
+                    let mut internals = shared.internals.lock().await;
+
                     internals.last_error = None;
                     let now = Instant::now();
                     let conn = IdleConn {
@@ -239,10 +277,10 @@ where
                     internals.conns.push(conn);
                     internals.pending_conns -= 1;
                     internals.num_conns += 1;
-                    // todo notify the wait
+                    shared.cond.notify_one();
                 }
                 Err(err) => {
-                    shared.internals.lock().unwrap().last_error = Some(err.to_string());
+                    shared.internals.lock().await.last_error = Some(err.to_string());
                     let delay = Duration::from_millis(200);
                     inner(delay, &shared);
                 }
@@ -256,19 +294,19 @@ where
     M: ConnectionManager,
 {
     pool: Pool<M>,
-    conn: Conn<M::Connection>,
+    conn: Option<Conn<M::Connection>>,
 }
 
-impl<M> PooledConnection<M> 
+impl<M> PooledConnection<M>
 where
     M: ConnectionManager,
 {
     pub fn take_raw_conn(&mut self) -> M::Connection {
-        self.conn.raw.take().unwrap()
+        self.conn.as_mut().unwrap().raw.take().unwrap()
     }
 
-    pub fn set_raw_conn(&mut self, raw: M::Connection)  {
-        self.conn.raw = Some(raw);
+    pub fn set_raw_conn(&mut self, raw: M::Connection) {
+        self.conn.as_mut().unwrap().raw = Some(raw);
     }
 }
 
@@ -277,7 +315,8 @@ where
     M: ConnectionManager,
 {
     fn drop(&mut self) {
-        println!("drop2");
+        self.pool
+            .put_back(Instant::now(), self.conn.take().unwrap());
     }
 }
 
@@ -287,7 +326,7 @@ where
 {
     type Target = M::Connection;
     fn deref(&self) -> &Self::Target {
-        &self.conn.raw.as_ref().unwrap()
+        &self.conn.as_ref().unwrap().raw.as_ref().unwrap()
     }
 }
 
@@ -296,6 +335,6 @@ where
     M: ConnectionManager,
 {
     fn deref_mut(&mut self) -> &mut M::Connection {
-        self.conn.raw.as_mut().unwrap()
+        self.conn.as_mut().unwrap().raw.as_mut().unwrap()
     }
 }
