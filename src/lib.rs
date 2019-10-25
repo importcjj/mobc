@@ -5,10 +5,10 @@ use config::Config;
 pub use futures;
 pub use futures::compat::Future01CompatExt;
 pub use futures::compat::Stream01CompatExt;
+use futures::lock::{Mutex, MutexGuard};
 pub use futures::Future;
 pub use futures::FutureExt;
 use log::debug;
-use futures::lock::::{Mutex, MutexGuard};
 use std::error;
 use std::fmt;
 use std::marker::Unpin;
@@ -21,7 +21,6 @@ use tokio_executor::Executor as TkExecutor;
 use tokio_timer::delay_for;
 
 static CONNECTION_ID: AtomicUsize = AtomicUsize::new(0);
-
 
 pub enum Error<E> {
     Inner(E),
@@ -40,7 +39,7 @@ pub type AnyFuture<T, E> = Box<dyn Future<Output = Result<T, E>> + Unpin + Send>
 
 pub trait ConnectionManager: Send + Sync + 'static {
     type Connection: Send + 'static;
-    type Error: error::Error + Send + 'static;
+    type Error: error::Error + Send + Sync + 'static;
     type Executor: TkExecutor + Send + Sync + 'static + Clone;
 
     fn get_executor(&self) -> Self::Executor;
@@ -74,7 +73,6 @@ where
     config: Config<M::Executor>,
     manager: M,
     internals: Mutex<PoolInternals<M::Connection>>,
-    cond: Condvar,
 }
 
 /// A generic connection pool.
@@ -109,7 +107,7 @@ where
         Builder::new()
     }
 
-    pub fn new_inner(config: Config<M::Executor>, manager: M) -> Pool<M> {
+    pub async fn new_inner(config: Config<M::Executor>, manager: M) -> Pool<M> {
         let internals = PoolInternals {
             conns: Vec::with_capacity(config.max_size as usize),
             num_conns: 0,
@@ -121,11 +119,11 @@ where
             config: config,
             manager: manager,
             internals: Mutex::new(internals),
-            cond: Condvar::new(),
         });
 
-        establish_idle_connections(&shared, &mut shared.internals.lock().await);
-
+        let mut internals = shared.internals.lock().await;
+        establish_idle_connections(&shared, &mut internals).await;
+        drop(internals);
         Pool(shared)
     }
 
@@ -162,9 +160,9 @@ where
             {
                 let mut internals = self.0.internals.lock().await;
                 add_connection(&self.0, &mut internals);
-                if self.0.cond.wait_until(&mut internals, end).timed_out() {
-                    return Err(Error::Timeout);
-                }
+                // if self.0.cond.wait_until(&mut internals, end).timed_out() {
+                //     return Err(Error::Timeout);
+                // }
             }
         }
     }
@@ -178,7 +176,7 @@ where
             println!("get success");
 
             return Ok(PooledConnection {
-                pool: self.clone(),
+                pool: Some(self.clone()),
                 conn: Some(conn.conn),
             });
         } else {
@@ -196,27 +194,36 @@ where
         let initial_size = self.0.config.min_idle.unwrap_or(self.0.config.max_size);
 
         while internals.num_conns != initial_size {
-            if self.0.cond.wait_until(&mut internals, end).timed_out() {
-                return Err(Error::Timeout);
-            }
+            // if self.0.cond.wait_until(&mut internals, end).timed_out() {
+            //     return Err(Error::Timeout);
+            // }
         }
 
         Ok(())
     }
 
-    fn put_back(&self, checkout: Instant, mut conn: Conn<M::Connection>) {
-        let mut internals = self.0.internals.lock().await;
-        let conn = IdleConn {
-            conn,
-            idle_start: Instant::now(),
-        };
-        internals.conns.push(conn);
-        self.0.cond.notify_one();
-        println!("put back ok");
+    fn put_back(self, checkout: Instant, mut conn: Conn<M::Connection>) {
+        // let new_shared = Arc::downgrade(self);
+
+        self.0.config.executor.clone().spawn(Box::pin(async move {
+            // let shared = match new_shared.upgrade() {
+            //     Some(shared) => shared,
+            //     None => return,
+            // };
+
+            let mut internals = self.0.internals.lock().await;
+            let conn = IdleConn {
+                conn,
+                idle_start: Instant::now(),
+            };
+            internals.conns.push(conn);
+            // self.0.cond.notify_one();
+            println!("put back ok");
+        }));
     }
 }
 
-fn establish_idle_connections<M>(
+async fn establish_idle_connections<M>(
     shared: &Arc<SharedPool<M>>,
     internals: &mut PoolInternals<M::Connection>,
 ) where
@@ -277,7 +284,7 @@ where
                     internals.conns.push(conn);
                     internals.pending_conns -= 1;
                     internals.num_conns += 1;
-                    shared.cond.notify_one();
+                    // shared.cond.notify_one();
                 }
                 Err(err) => {
                     shared.internals.lock().await.last_error = Some(err.to_string());
@@ -293,7 +300,7 @@ pub struct PooledConnection<M>
 where
     M: ConnectionManager,
 {
-    pool: Pool<M>,
+    pool: Option<Pool<M>>,
     conn: Option<Conn<M::Connection>>,
 }
 
@@ -316,6 +323,8 @@ where
 {
     fn drop(&mut self) {
         self.pool
+            .take()
+            .unwrap()
             .put_back(Instant::now(), self.conn.take().unwrap());
     }
 }

@@ -77,12 +77,12 @@ where
     where
         Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
     {
-        let pool = self.build_unchecked(manager);
+        let pool = self.build_unchecked(manager).await;
         pool.wait_for_initialization().await?;
         Ok(pool)
     }
 
-    pub fn build_unchecked(self, manager: M) -> Pool<M> {
+    pub async fn build_unchecked(self, manager: M) -> Pool<M> {
         if let Some(min_idle) = self.min_idle {
             assert!(
                 self.max_size >= min_idle,
@@ -97,6 +97,6 @@ where
             executor: manager.get_executor(),
         };
 
-        Pool::new_inner(config, manager)
+        Pool::new_inner(config, manager).await
     }
 }
