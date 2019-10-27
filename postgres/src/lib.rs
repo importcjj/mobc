@@ -46,9 +46,8 @@ where
         Box::new(
             self.config
                 .connect(self.tls.clone())
-                .compat()
                 .map_ok(move |(client, conn)| {
-                    executor.spawn(Box::pin(conn.compat().map(|_| ())));
+                    executor.spawn(Box::pin(conn.map(|_| ())));
                     client
                 }),
         )
@@ -57,12 +56,10 @@ where
     fn is_valid(&self, mut conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
         Box::new(
             conn.simple_query("")
-                .collect()
                 .then(move |r| match r {
                     Ok(_) => Ok(conn),
                     Err(e) => Err(e),
                 })
-                .compat(),
         )
     }
 
