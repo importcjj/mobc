@@ -16,16 +16,17 @@ async fn do_postgres() -> Result<(), Error<PostgresError>> {
     let manager = PostgresConnectionManager::new(config, NoTls);
     let pool = Pool::new(manager).await?;
 
+    async fn simple_query(pool: Pool<PostgresConnectionManager<NoTls>>) -> Result<(), Error<PostgresError>> {
+        let conn = pool.get().await?;
+        let statement = conn.prepare("SELECT 1").await?;
+        let r = conn.execute(&statement, &[]).await?;
+        println!("query result! {:?}", r);
+        Ok(())
+    }
+
     for _ in 0..MAX {
         let pool = pool.clone();
-        let fut = async move {
-            let conn = pool.get().await?;
-            let statement = conn.prepare("SELECT 1").await?;
-            let r = conn.execute(&statement, &[]).await?;
-            println!("query result! {:?}", r);
-            Ok(())
-        };
-        tokio::spawn(fut.map(|_| ()));
+        tokio::spawn(simple_query(pool).map(|_| ()));
     }
 
     Ok(())

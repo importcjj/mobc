@@ -251,7 +251,7 @@ where
     internals.pending_conns += 1;
     inner(Duration::from_secs(0), shared);
 
-    fn inner<M>(delay: Duration, shared: &Arc<SharedPool<M>>)
+    fn inner<M>(_delay: Duration, shared: &Arc<SharedPool<M>>)
     where
         M: ConnectionManager,
     {

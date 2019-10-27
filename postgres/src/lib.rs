@@ -43,24 +43,21 @@ where
 
     fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
         let mut executor = self.get_executor().clone();
-        Box::new(
-            self.config
-                .connect(self.tls.clone())
-                .map_ok(move |(client, conn)| {
-                    executor.spawn(Box::pin(conn.map(|_| ())));
-                    client
-                }),
-        )
+        let config = self.config.clone();
+        let tls = self.tls.clone();
+        let connect_fut = async move { config.connect(tls).await };
+        Box::new(Box::pin(connect_fut.map_ok(move |(client, conn)| {
+            executor.spawn(Box::pin(conn.map(|_| ())));
+            client
+        })))
     }
 
     fn is_valid(&self, mut conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
-        Box::new(
-            conn.simple_query("")
-                .then(move |r| match r {
-                    Ok(_) => Ok(conn),
-                    Err(e) => Err(e),
-                })
-        )
+        let simple_query_fut = async move {
+            conn.execute("", &[]).await;
+            Ok(conn)
+        };
+        Box::new(Box::pin(simple_query_fut))
     }
 
     fn has_broken(&self, conn: &mut Self::Connection) -> bool {
