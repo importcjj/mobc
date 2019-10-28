@@ -1,8 +1,6 @@
-use futures_01::{Future as _, Stream as _};
-use mobc::futures::{compat::Future01CompatExt, FutureExt, TryFutureExt};
+use mobc::futures::{FutureExt, TryFutureExt};
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
-use mobc::Stream01CompatExt;
 use tokio_executor::DefaultExecutor;
 use tokio_executor::Executor;
 pub use tokio_postgres;
@@ -52,15 +50,18 @@ where
         })))
     }
 
-    fn is_valid(&self, mut conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+    fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
         let simple_query_fut = async move {
-            conn.execute("", &[]).await;
+            conn.execute("", &[]).await?;
             Ok(conn)
         };
         Box::new(Box::pin(simple_query_fut))
     }
 
-    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
-        conn.is_closed()
+    fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+        match conn {
+            Some(ref raw) => raw.is_closed(),
+            None => false,
+        }
     }
 }

@@ -10,15 +10,12 @@ pub use futures::Future;
 pub use futures::FutureExt;
 use log::debug;
 use std::error;
-use std::fmt;
 use std::marker::Unpin;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_executor::Executor as TkExecutor;
-use tokio_timer::delay_for;
 
 static CONNECTION_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -43,9 +40,10 @@ pub trait ConnectionManager: Send + Sync + 'static {
     type Executor: TkExecutor + Send + Sync + 'static + Clone;
 
     fn get_executor(&self) -> Self::Executor;
+    // TODO: Fix dynamic dispatch with impl.
     fn connect(&self) -> AnyFuture<Self::Connection, Self::Error>;
     fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error>;
-    fn has_broken(&self, conn: &mut Self::Connection) -> bool;
+    fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool;
 }
 
 struct Conn<C> {
@@ -122,7 +120,7 @@ where
         });
 
         let mut internals = shared.internals.lock().await;
-        establish_idle_connections(&shared, &mut internals).await;
+        establish_idle_connections(&shared, &mut internals);
         drop(internals);
         Pool(shared)
     }
@@ -147,7 +145,7 @@ where
         Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
     {
         let start = Instant::now();
-        let end = start + timeout;
+        let _end = start + timeout;
 
         loop {
             // println!("get timeout");
@@ -169,7 +167,7 @@ where
 
     async fn try_get_inner(&self) -> Result<PooledConnection<M>, ()> {
         let mut internals = self.0.internals.lock().await;
-        if let Some(mut conn) = internals.conns.pop() {
+        if let Some(conn) = internals.conns.pop() {
             establish_idle_connections(&self.0, &mut internals);
             drop(internals);
 
@@ -189,11 +187,11 @@ where
         Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
     {
         debug!("waiting for initialization");
-        let end = Instant::now() + self.0.config.connection_timeout;
+        let _end = Instant::now() + self.0.config.connection_timeout;
         let initial_size = self.0.config.min_idle.unwrap_or(self.0.config.max_size);
 
         loop {
-            let mut internals = self.0.internals.lock().await;
+            let internals = self.0.internals.lock().await;
             if internals.num_conns == initial_size {
                 break;
             }
@@ -202,28 +200,48 @@ where
         Ok(())
     }
 
-    fn put_back(self, checkout: Instant, mut conn: Conn<M::Connection>) {
+    fn put_back(self, _checkout: Instant, mut conn: Conn<M::Connection>) {
         // let new_shared = Arc::downgrade(self);
 
-        self.0.config.executor.clone().spawn(Box::pin(async move {
+        let _ = self.0.config.executor.clone().spawn(Box::pin(async move {
             // let shared = match new_shared.upgrade() {
             //     Some(shared) => shared,
             //     None => return,
             // };
 
+            // This is specified to be fast, but call it before locking anyways
+            let broken = self.0.manager.has_broken(&mut conn.raw);
             let mut internals = self.0.internals.lock().await;
-            let conn = IdleConn {
-                conn,
-                idle_start: Instant::now(),
-            };
-            internals.conns.push(conn);
-            // self.0.cond.notify_one();
-            println!("put back ok");
+
+            if broken {
+                println!("conn is broken");
+                drop_conns(&self.0, internals, vec![conn]);
+                return;
+            } else {
+                println!("put back ok, id {}", conn.id);
+                let conn = IdleConn {
+                    conn,
+                    idle_start: Instant::now(),
+                };
+                internals.conns.push(conn);
+            }
         }));
     }
 }
 
-async fn establish_idle_connections<M>(
+fn drop_conns<M>(
+    shared: &Arc<SharedPool<M>>,
+    mut internals: MutexGuard<PoolInternals<M::Connection>>,
+    conn: Vec<Conn<M::Connection>>,
+) where
+    M: ConnectionManager,
+{
+    internals.num_conns -= conn.len() as u32;
+    establish_idle_connections(shared, &mut internals);
+    drop(internals);
+}
+
+fn establish_idle_connections<M>(
     shared: &Arc<SharedPool<M>>,
     internals: &mut PoolInternals<M::Connection>,
 ) where
@@ -257,7 +275,7 @@ where
     {
         debug!("inner add connection");
         let new_shared = Arc::downgrade(shared);
-        shared.config.executor.clone().spawn(Box::pin(async move {
+        let _ = shared.config.executor.clone().spawn(Box::pin(async move {
             let shared = match new_shared.upgrade() {
                 Some(shared) => shared,
                 None => return,
