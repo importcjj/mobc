@@ -16,7 +16,9 @@ async fn do_postgres() -> Result<(), Error<PostgresError>> {
     let manager = PostgresConnectionManager::new(config, NoTls);
     let pool = Pool::new(manager).await?;
 
-    async fn simple_query(pool: Pool<PostgresConnectionManager<NoTls>>) -> Result<(), Error<PostgresError>> {
+    async fn simple_query(
+        pool: Pool<PostgresConnectionManager<NoTls>>,
+    ) -> Result<(), Error<PostgresError>> {
         let conn = pool.get().await?;
         let statement = conn.prepare("SELECT 1").await?;
         let r = conn.execute(&statement, &[]).await?;
