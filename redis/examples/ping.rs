@@ -8,7 +8,7 @@ use tokio::executor::DefaultExecutor;
 use tokio::prelude::*;
 use tokio::sync::mpsc;
 
-const MAX: usize = 1000;
+const MAX: usize = 10000;
 
 async fn ping(
     pool: Pool<RedisConnectionManager<DefaultExecutor>>,
@@ -24,7 +24,7 @@ async fn ping(
 
     conn.set_raw_conn(raw_conn);
 
-    assert_eq!("PONG", pong);
+    println!("{}", pong);
     sender.send(()).await.unwrap();
     Ok(())
 }

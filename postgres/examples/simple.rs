@@ -3,14 +3,14 @@ use mobc::Pool;
 use mobc_postgres::tokio_postgres;
 use mobc_postgres::PostgresConnectionManager;
 use std::str::FromStr;
-use std::time::{Instant};
+use std::time::Instant;
 use tokio::prelude::*;
 use tokio::sync::mpsc;
 use tokio_postgres::Config;
 use tokio_postgres::Error as PostgresError;
 use tokio_postgres::NoTls;
 
-const MAX: usize = 10000;
+const MAX: usize = 100000;
 
 async fn simple_query(
     pool: Pool<PostgresConnectionManager<NoTls>>,
@@ -19,6 +19,7 @@ async fn simple_query(
     let conn = pool.get().await?;
     // let statement = conn.prepare("SELECT 1").await?;
     let r = conn.execute("SELECT 1", &[]).await?;
+    println!("execute status {}", r);
     assert_eq!(r, 1);
     sender.send(()).await.unwrap();
     Ok(())

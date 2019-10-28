@@ -3,14 +3,17 @@ mod config;
 use config::Builder;
 use config::Config;
 pub use futures;
+use futures::channel::mpsc;
 use futures::channel::oneshot::{self, Sender};
 pub use futures::compat::Future01CompatExt;
 pub use futures::compat::Stream01CompatExt;
 use futures::lock::{Mutex, MutexGuard};
 pub use futures::Future;
 pub use futures::FutureExt;
+use futures::StreamExt;
 use log::debug;
 use std::error;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -18,8 +21,6 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio_executor::Executor as TkExecutor;
 use tokio_timer::{delay, Interval};
-use std::fmt;
-
 
 static CONNECTION_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -61,9 +62,9 @@ struct IdleConn<C> {
 }
 
 struct PoolInternals<C> {
-    waiters: Vec<Sender<Conn<C>>>,
-    conns: Vec<IdleConn<C>>,
+    conns: mpsc::Sender<IdleConn<C>>,
     num_conns: u32,
+    idle_conns: u32,
     pending_conns: u32,
     last_error: Option<String>,
 }
@@ -75,6 +76,7 @@ where
     config: Config<M::Executor>,
     manager: M,
     internals: Mutex<PoolInternals<M::Connection>>,
+    conns: Mutex<mpsc::Receiver<IdleConn<M::Connection>>>,
 }
 
 /// A generic connection pool.
@@ -114,11 +116,12 @@ where
         manager: M,
         reaper_rate: Duration,
     ) -> Pool<M> {
+        let (recycle, conns) = mpsc::channel(config.max_size as usize);
         let internals = PoolInternals {
-            waiters: Vec::with_capacity(config.max_concurrency as usize),
-            conns: Vec::with_capacity(config.max_size as usize),
+            conns: recycle,
             num_conns: 0,
             pending_conns: 0,
+            idle_conns: 0,
             last_error: None,
         };
 
@@ -126,13 +129,14 @@ where
             config: config,
             manager: manager,
             internals: Mutex::new(internals),
+            conns: Mutex::new(conns),
         });
 
         let mut internals = shared.internals.lock().await;
         establish_idle_connections(&shared, &mut internals);
 
         if shared.config.max_lifetime.is_some() || shared.config.idle_timeout.is_some() {
-            reap_connections(&shared, reaper_rate);
+            // reap_connections(&shared, reaper_rate);
         }
 
         drop(internals);
@@ -164,28 +168,20 @@ where
         let timeout = delay(end);
 
         // println!("get timeout");
-        let mut internals = self.0.internals.lock().await;
-        match self.try_get_inner(internals).await {
-            Ok(conn) => {
-                return Ok(conn);
-            }
-            Err(i) => internals = i,
-        }
-        let (tx, rx) = oneshot::channel::<Conn<M::Connection>>();
-        internals.waiters.push(tx);
-        add_connection(&self.0, &mut internals);
+        let mut conns = self.0.conns.lock().await;
 
-        drop(internals);
         futures::select! {
             () = timeout.fuse() => Err(Error::Timeout),
-            r = rx.fuse() => match r {
-                 Ok(conn) => {
-                return Ok(PooledConnection {
-                    pool: Some(self.clone()),
-                    conn: Some(conn),
-                })
-            }
-            Err(_) => Err(Error::Timeout),
+            r = conns.next() => match r {
+                Some(conn) => {
+                    let mut internals = self.0.internals.lock().await;
+                    internals.idle_conns -= 1;
+                    return Ok(PooledConnection {
+                        pool: Some(self.clone()),
+                        conn: Some(conn.conn),
+                    })
+                }
+                None => Err(Error::Timeout),
             }
         }
     }
@@ -196,26 +192,17 @@ where
     /// Returns `None` if there are no idle connections available in the pool.
     /// This method will not block waiting to establish a new connection.
     pub async fn try_get(&self) -> Option<PooledConnection<M>> {
-        self.try_get_inner(self.0.internals.lock().await).await.ok()
-    }
-
-    async fn try_get_inner<'a>(
-        &self,
-        mut internals: MutexGuard<'a, PoolInternals<M::Connection>>,
-    ) -> Result<PooledConnection<M>, MutexGuard<'a, PoolInternals<M::Connection>>> {
-        // let mut internals = self.0.internals.lock().await;
-        if let Some(conn) = internals.conns.pop() {
-            establish_idle_connections(&self.0, &mut internals);
-            drop(internals);
-
-            debug!("get success");
-
-            return Ok(PooledConnection {
-                pool: Some(self.clone()),
-                conn: Some(conn.conn),
-            });
-        } else {
-            return Err(internals);
+        let mut conns = self.0.conns.lock().await;
+        match conns.try_next() {
+            Ok(Some(conn)) => {
+                let mut internals = self.0.internals.lock().await;
+                internals.idle_conns -= 1;
+                Some(PooledConnection {
+                    pool: Some(self.clone()),
+                    conn: Some(conn.conn),
+                })
+            }
+            _ => None,
         }
     }
 
@@ -243,24 +230,18 @@ where
         let _ = self.0.config.executor.clone().spawn(Box::pin(async move {
             // This is specified to be fast, but call it before locking anyways
             let broken = self.0.manager.has_broken(&mut conn.raw);
-            let mut internals = self.0.internals.lock().await;
 
+            let mut internals = self.0.internals.lock().await;
             if broken {
                 drop_conns(&self.0, internals, vec![conn]);
                 return;
             } else {
-                if let Some(waiter) = internals.waiters.pop() {
-                    if let Err(c) = waiter.send(conn) {
-                        conn = c;
-                    } else {
-                        return;
-                    }
-                }
                 let conn = IdleConn {
                     conn,
                     idle_start: Instant::now(),
                 };
-                internals.conns.push(conn);
+                internals.conns.try_send(conn).unwrap();
+                internals.idle_conns += 1;
             }
         }));
     }
@@ -270,7 +251,7 @@ where
         let internals = self.0.internals.lock().await;
         State {
             connections: internals.num_conns,
-            idle_connections: internals.conns.len() as u32,
+            idle_connections: internals.idle_conns,
             _p: (),
         }
     }
@@ -295,7 +276,7 @@ fn establish_idle_connections<M>(
     M: ConnectionManager,
 {
     let min = shared.config.min_idle.unwrap_or(shared.config.max_size);
-    let idle = internals.conns.len() as u32;
+    let idle = internals.idle_conns as u32;
     debug!(
         "idle {} min {}, {}, {}",
         idle, min, internals.num_conns, internals.pending_conns,
@@ -337,7 +318,7 @@ where
 
                     internals.last_error = None;
                     let now = Instant::now();
-                    let conn = IdleConn {
+                    let mut conn = IdleConn {
                         conn: Conn {
                             raw: Some(conn),
                             birth: now,
@@ -346,8 +327,14 @@ where
                         idle_start: now,
                     };
 
-                    internals.conns.push(conn);
+                    loop {
+                        match internals.conns.try_send(conn) {
+                            Ok(()) => break,
+                            Err(c) => conn = c.into_inner(),
+                        }
+                    }
                     internals.pending_conns -= 1;
+                    internals.idle_conns += 1;
                     internals.num_conns += 1;
                     drop(internals);
                 }
@@ -361,53 +348,53 @@ where
     }
 }
 
-fn reap_connections<M>(shared: &Arc<SharedPool<M>>, reaper_rate: Duration)
-where
-    M: ConnectionManager,
-{
-    let new_shared = Arc::downgrade(shared);
-    let _ = shared
-        .manager
-        .get_executor()
-        .clone()
-        .spawn(Box::pin(async move {
-            while let Some(_) = Interval::new_interval(reaper_rate).next().await {
-                reap_conn(&new_shared).await;
-            }
-        }));
+// fn reap_connections<M>(shared: &Arc<SharedPool<M>>, reaper_rate: Duration)
+// where
+//     M: ConnectionManager,
+// {
+//     let new_shared = Arc::downgrade(shared);
+//     let _ = shared
+//         .manager
+//         .get_executor()
+//         .clone()
+//         .spawn(Box::pin(async move {
+//             while let Some(_) = Interval::new_interval(reaper_rate).next().await {
+//                 reap_conn(&new_shared).await;
+//             }
+//         }));
 
-    async fn reap_conn<M>(shared: &Weak<SharedPool<M>>)
-    where
-        M: ConnectionManager,
-    {
-        let shared = match shared.upgrade() {
-            Some(shared) => shared,
-            None => return,
-        };
+//     async fn reap_conn<M>(shared: &Weak<SharedPool<M>>)
+//     where
+//         M: ConnectionManager,
+//     {
+//         let shared = match shared.upgrade() {
+//             Some(shared) => shared,
+//             None => return,
+//         };
 
-        let mut old = Vec::with_capacity(shared.config.max_size as usize);
-        let mut to_drop = vec![];
+//         let mut old = Vec::with_capacity(shared.config.max_size as usize);
+//         let mut to_drop = vec![];
 
-        let mut internals = shared.internals.lock().await;
-        std::mem::swap(&mut old, &mut internals.conns);
-        let now = Instant::now();
-        for conn in old {
-            let mut reap = false;
-            if let Some(timeout) = shared.config.idle_timeout {
-                reap |= now - conn.idle_start >= timeout;
-            }
-            if let Some(lifetime) = shared.config.max_lifetime {
-                reap |= now - conn.conn.birth >= lifetime;
-            }
-            if reap {
-                to_drop.push(conn.conn);
-            } else {
-                internals.conns.push(conn);
-            }
-        }
-        drop_conns(&shared, internals, to_drop);
-    }
-}
+//         let mut internals = shared.internals.lock().await;
+//         std::mem::swap(&mut old, &mut internals.conns);
+//         let now = Instant::now();
+//         for conn in old {
+//             let mut reap = false;
+//             if let Some(timeout) = shared.config.idle_timeout {
+//                 reap |= now - conn.idle_start >= timeout;
+//             }
+//             if let Some(lifetime) = shared.config.max_lifetime {
+//                 reap |= now - conn.conn.birth >= lifetime;
+//             }
+//             if reap {
+//                 to_drop.push(conn.conn);
+//             } else {
+//                 internals.conns.push(conn);
+//             }
+//         }
+//         drop_conns(&shared, internals, to_drop);
+//     }
+// }
 
 /// Information about the state of a `Pool`.
 pub struct State {
