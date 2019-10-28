@@ -44,10 +44,10 @@ where
         let config = self.config.clone();
         let tls = self.tls.clone();
         let connect_fut = async move { config.connect(tls).await };
-        Box::new(Box::pin(connect_fut.map_ok(move |(client, conn)| {
-            executor.spawn(Box::pin(conn.map(|_| ())));
+        Box::pin(connect_fut.map_ok(move |(client, conn)| {
+            let _ = executor.spawn(Box::pin(conn.map(|_| ())));
             client
-        })))
+        }))
     }
 
     fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
@@ -55,7 +55,7 @@ where
             conn.execute("", &[]).await?;
             Ok(conn)
         };
-        Box::new(Box::pin(simple_query_fut))
+        Box::pin(simple_query_fut)
     }
 
     fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {

@@ -1,41 +1,56 @@
-use futures_01::Future;
 use mobc::futures::{compat::Future01CompatExt, TryFutureExt};
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
 pub use redis;
-use redis::aio::{Connection, ConnectionLike};
+use redis::aio::Connection;
 use redis::Client;
-use redis::RedisError;
-use redis::RedisFuture;
-use redis::Value;
-use std::sync::Arc;
 use tokio_executor::DefaultExecutor;
+use tokio_executor::Executor as TkExecutor;
 
-pub struct RedisConnectionManager {
+pub struct RedisConnectionManager<T>
+where
+    T: TkExecutor + Send + Sync + 'static + Clone,
+{
     client: Client,
+    executor: T,
 }
 
-impl RedisConnectionManager {
+impl RedisConnectionManager<DefaultExecutor> {
     pub fn new(client: Client) -> Self {
-        RedisConnectionManager { client }
+        RedisConnectionManager {
+            client,
+            executor: DefaultExecutor::current(),
+        }
     }
 }
 
-impl ConnectionManager for RedisConnectionManager {
+impl<T> RedisConnectionManager<T>
+where
+    T: TkExecutor + Send + Sync + 'static + Clone,
+{
+    pub fn new_with_executor(client: Client, executor: T) -> Self {
+        RedisConnectionManager { client, executor }
+    }
+}
+
+impl<T> ConnectionManager for RedisConnectionManager<T>
+where
+    T: TkExecutor + Send + Sync + 'static + Clone,
+{
     type Connection = Connection;
     type Error = redis::RedisError;
-    type Executor = DefaultExecutor;
+    type Executor = T;
 
     fn get_executor(&self) -> Self::Executor {
-        DefaultExecutor::current()
+        self.executor.clone()
     }
 
     fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
-        Box::new(self.client.get_async_connection().compat())
+        Box::pin(self.client.get_async_connection().compat())
     }
 
     fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
-        Box::new(
+        Box::pin(
             redis::cmd("PING")
                 .query_async::<_, String>(conn)
                 .compat()
@@ -43,7 +58,10 @@ impl ConnectionManager for RedisConnectionManager {
         )
     }
 
-    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
-        false
+    fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+        match conn {
+            Some(_) => false,
+            None => true,
+        }
     }
 }

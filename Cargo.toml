@@ -3,7 +3,11 @@ name = "mobc"
 version = "0.1.0"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
-
+readme = "README.md"
+license = "MIT/Apache-2.0"
+description = "A generic connection pool, but async/await"
+repository = "https://github.com/importcjj/mobc"
+keywords = ["database", "pool", "async", "await"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
