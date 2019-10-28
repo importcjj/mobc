@@ -24,7 +24,7 @@ async fn ping(
 
     conn.set_raw_conn(raw_conn);
 
-    println!("{}", pong);
+    assert_eq!("PONG", pong);
     sender.send(()).await.unwrap();
     Ok(())
 }
@@ -32,7 +32,7 @@ async fn ping(
 async fn do_redis(sender: mpsc::Sender<()>) -> Result<(), Error<RedisError>> {
     let client = redis::Client::open("redis://127.0.0.1").unwrap();
     let manager = RedisConnectionManager::new(client);
-    let pool = Pool::new(manager).await?;
+    let pool = Pool::builder().max_size(40).build(manager).await?;
 
     println!("pool was created");
 
