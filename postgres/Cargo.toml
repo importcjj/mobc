@@ -3,7 +3,11 @@ name = "mobc-postgres"
 version = "0.1.0"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
-
+readme = "README.md"
+license = "MIT/Apache-2.0"
+description = "Postgres support for the r2d2 connection pool"
+repository = "https://github.com/importcjj/mobc/postgres"
+keywords = ["postgres", "pool", "database", "async", "await"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
