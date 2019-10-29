@@ -1,11 +1,7 @@
-use futures_01::future::Executor as Executor01;
-use futures_01::future::{ExecuteError, ExecuteErrorKind};
-use futures_01::Future as Future01;
-use mobc::{Future01CompatExt, FutureExt};
+use mobc::futures::compat::Future01CompatExt;
 use redis::Client;
 use redis::{self, RedisError};
 use std::time::Instant;
-use tokio::prelude::*;
 
 const MAX: usize = 5000;
 

@@ -1,5 +1,5 @@
+use mobc::futures::compat::Future01CompatExt;
 use mobc::Error;
-use mobc::Future01CompatExt;
 use mobc::Pool;
 use mobc_redis::redis::{self, RedisError};
 use mobc_redis::RedisConnectionManager;

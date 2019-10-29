@@ -14,6 +14,7 @@ pub struct Config<T> {
     pub idle_timeout: Option<Duration>,
 }
 
+/// A builder for a connection pool.
 pub struct Builder<M>
 where
     M: ConnectionManager,

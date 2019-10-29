@@ -1,14 +1,54 @@
+//! A generic connection pool, but async/await.
+//!
+//! Opening a new database connection every time one is needed is both
+//! inefficient and can lead to resource exhaustion under high traffic
+//! conditions. A connection pool maintains a set of open connections to a
+//! database, handing them out for repeated use.
+//!
+//! mobc is agnostic to the connection type it is managing. Implementors of the
+//! `ManageConnection` trait provide the database-specific logic to create and
+//! check the health of connections.
+//!
+//! # Example
+//!
+//! Using an imaginary "foodb" database.
+//!
+//! ```rust,ignore
+//! use tokio;
+//!
+//! extern crate mobc;
+//! extern crate mobc_foodb;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let manager = r2d2_foodb::FooConnectionManager::new("localhost:1234");
+//!     let pool = r2d2::Pool::builder()
+//!         .max_size(15)
+//!         .build(manager)
+//!         .await
+//!         .unwrap();
+//!
+//!     for _ in 0..20 {
+//!         let pool = pool.clone();
+//!         tokio::spawn(async {
+//!             let conn = pool.get().await.unwrap();
+//!             // use the connection
+//!             // it will be returned to the pool when it falls out of scope.
+//!         });
+//!     }
+//! }
+//! ```
+
+#![warn(missing_docs)]
 mod config;
 
 use config::Builder;
 use config::Config;
 pub use futures;
 use futures::channel::mpsc;
-pub use futures::compat::Future01CompatExt;
-pub use futures::compat::Stream01CompatExt;
 use futures::lock::{Mutex, MutexGuard};
-pub use futures::Future;
-pub use futures::FutureExt;
+use futures::Future;
+use futures::FutureExt;
 use futures::StreamExt;
 use log::debug;
 use std::error;
@@ -23,8 +63,11 @@ use tokio_timer::{delay, Interval};
 
 static CONNECTION_ID: AtomicUsize = AtomicUsize::new(0);
 
+/// The error type returned by methods in this crate.
 pub enum Error<E> {
+    /// Manager Errors
     Inner(E),
+    /// Timeout
     Timeout,
 }
 
@@ -60,16 +103,38 @@ where
 
 // pub trait Executor: TkExecutor + Send + Sync + 'static + Clone {};
 
+/// Future alias
 pub type AnyFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
 
+/// A trait which provides connection-specific functionality.
 pub trait ConnectionManager: Send + Sync + 'static {
+    /// The connection type this manager deals with.
     type Connection: Send + 'static;
+    /// The error type returned by `Connection`s.
     type Error: error::Error + Send + Sync + 'static;
+    /// The executor type this manager bases.
     type Executor: TkExecutor + Send + Sync + 'static + Clone;
 
+    /// Get a future executor.
     fn get_executor(&self) -> Self::Executor;
+
+    /// Attempts to create a new connection.
     fn connect(&self) -> AnyFuture<Self::Connection, Self::Error>;
+
+    /// Determines if the connection is still connected to the database.
+    ///
+    /// A standard implementation would check if a simple query like `SELECT 1`
+    /// succeeds.
     fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error>;
+    /// *Quickly* determines if the connection is no longer usable.
+    ///
+    /// This will be called synchronously every time a connection is returned
+    /// to the pool, so it should *not* block. If it returns `true`, the
+    /// connection will be discarded.
+    ///
+    /// For example, an implementation might check if the underlying TCP socket
+    /// has disconnected. Implementations that do not support this kind of
+    /// fast health check may simply return `false`.
     fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool;
 }
 
@@ -134,11 +199,7 @@ where
         Builder::new()
     }
 
-    pub async fn new_inner(
-        config: Config<M::Executor>,
-        manager: M,
-        reaper_rate: Duration,
-    ) -> Pool<M> {
+    async fn new_inner(config: Config<M::Executor>, manager: M, reaper_rate: Duration) -> Pool<M> {
         let (recycle, conns) = mpsc::channel(config.max_size as usize);
         let internals = PoolInternals {
             conns: recycle,
@@ -464,7 +525,7 @@ impl fmt::Debug for State {
             .finish()
     }
 }
-
+/// A smart pointer wrapping a connection.
 pub struct PooledConnection<M>
 where
     M: ConnectionManager,
@@ -477,10 +538,12 @@ impl<M> PooledConnection<M>
 where
     M: ConnectionManager,
 {
+    /// Takes the raw database connection
     pub fn take_raw_conn(&mut self) -> M::Connection {
         self.conn.as_mut().unwrap().raw.take().unwrap()
     }
 
+    /// Put back the raw database connection
     pub fn set_raw_conn(&mut self, raw: M::Connection) {
         self.conn.as_mut().unwrap().raw = Some(raw);
     }
