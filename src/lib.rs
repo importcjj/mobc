@@ -21,8 +21,8 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let manager = r2d2_foodb::FooConnectionManager::new("localhost:1234");
-//!     let pool = r2d2::Pool::builder()
+//!     let manager = mobc_foodb::FooConnectionManager::new("localhost:1234");
+//!     let pool = mobc::Pool::builder()
 //!         .max_size(15)
 //!         .build(manager)
 //!         .await
