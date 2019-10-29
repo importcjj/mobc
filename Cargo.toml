@@ -31,6 +31,6 @@ members = [
     "postgres"
 ]
 
-[[bench]]
-name = "redis"
-harness = false
+# [[bench]]
+# name = "redis"
+# harness = false

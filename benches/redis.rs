@@ -57,7 +57,6 @@ fn mobc_redis_bench(n: usize) {
             let tx = tx.clone();
             let _ = mobc_redis_ping(pool, tx).await;
         }
-
     });
 }
 
@@ -65,7 +64,10 @@ fn redis_async_share_bench(n: usize) {
     let rt = Runtime::new().unwrap();
     let client = redis::Client::open("redis://127.0.0.1").unwrap();
     rt.block_on(async {
-        let conn = client.get_shared_async_connection_with_executor(rt.executor()).compat().await?;
+        let conn = client
+            .get_shared_async_connection_with_executor(rt.executor())
+            .compat()
+            .await?;
         for _ in 0..n {
             let conn = conn.clone();
             redis::cmd("PING")
@@ -83,8 +85,9 @@ fn bench_redis(c: &mut Criterion) {
         // group.bench_with_input(BenchmarkId::new("mobc_redis", i), i, |b, i| {
         //     b.iter(|| mobc_redis_bench(*i))
         // });
-        group.bench_with_input(BenchmarkId::new("redis_async_share", i), i,
-        |b, i| b.iter(|| redis_async_share_bench(*i)));
+        group.bench_with_input(BenchmarkId::new("redis_async_share", i), i, |b, i| {
+            b.iter(|| redis_async_share_bench(*i))
+        });
     }
     group.finish();
 }

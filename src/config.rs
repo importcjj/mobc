@@ -149,6 +149,14 @@ where
         self
     }
 
+    // used by tests
+    #[doc(hidden)]
+    #[allow(dead_code)]
+    pub fn reaper_rate(mut self, reaper_rate: Duration) -> Builder<M> {
+        self.reaper_rate = reaper_rate;
+        self
+    }
+
     /// Consumes the builder, returning a new, initialized pool.
     ///
     /// It will block until the pool has established its configured minimum
