@@ -57,7 +57,7 @@ pub trait ConnectionManager: Send + Sync + 'static {
     /// The error type returned by `Connection`s.
     type Error: error::Error + Send + Sync + 'static;
     /// The executor type this manager bases.
-    type Executor: TkExecutor + Send + Sync + 'static + Clone;
+    type Executor: Executor + Send + Sync + 'static + Clone;
 
     /// Get a future executor.
     fn get_executor(&self) -> Self::Executor;
