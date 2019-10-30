@@ -21,8 +21,6 @@ features = ["compat", "async-await"]
 
 [dev-dependencies]
 criterion = "0.3.0"
-# mobc-redis = { path = "./redis" }
-# mobc-postgres = { path = "./postgres" }
 tokio = "0.2.0-alpha.6"
 
 [workspace]
