@@ -577,7 +577,7 @@ dependencies = [
 
 [[package]]
 name = "mobc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-preview 0.3.0-alpha.19 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -589,10 +589,10 @@ dependencies = [
 
 [[package]]
 name = "mobc-postgres"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
- "mobc 0.1.0",
+ "mobc 0.1.1",
  "tokio 0.2.0-alpha.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-executor 0.2.0-alpha.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-postgres 0.5.0-alpha.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -604,7 +604,7 @@ version = "0.2.0"
 dependencies = [
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "mobc 0.1.0",
+ "mobc 0.1.1",
  "redis 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.2.0-alpha.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-executor 0.2.0-alpha.6 (registry+https://github.com/rust-lang/crates.io-index)",
