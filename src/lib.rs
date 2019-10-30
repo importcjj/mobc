@@ -41,9 +41,11 @@
 
 #![warn(missing_docs)]
 mod config;
+mod executor;
 
 use config::Builder;
 use config::Config;
+pub use executor::Executor;
 pub use futures;
 use futures::channel::mpsc;
 use futures::lock::{Mutex, MutexGuard};
@@ -58,7 +60,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
-use tokio_executor::Executor as TkExecutor;
 use tokio_timer::{delay, Interval};
 
 static CONNECTION_ID: AtomicUsize = AtomicUsize::new(0);
@@ -101,8 +102,6 @@ where
     }
 }
 
-// pub trait Executor: TkExecutor + Send + Sync + 'static + Clone {};
-
 /// Future alias
 pub type AnyFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
 
@@ -113,7 +112,7 @@ pub trait ConnectionManager: Send + Sync + 'static {
     /// The error type returned by `Connection`s.
     type Error: error::Error + Send + Sync + 'static;
     /// The executor type this manager bases.
-    type Executor: TkExecutor + Send + Sync + 'static + Clone;
+    type Executor: Executor + Send + Sync + 'static + Clone;
 
     /// Get a future executor.
     fn get_executor(&self) -> Self::Executor;

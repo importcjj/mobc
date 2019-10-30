@@ -2,7 +2,7 @@ use mobc::futures::{FutureExt, TryFutureExt};
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
 use tokio_executor::DefaultExecutor;
-use tokio_executor::Executor as TkExecutor;
+use mobc::Executor;
 pub use tokio_postgres;
 use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
 use tokio_postgres::Client;
@@ -12,7 +12,7 @@ use tokio_postgres::Socket;
 
 pub struct PostgresConnectionManager<Tls, U>
 where
-    U: TkExecutor + Send + Sync + 'static + Clone,
+    U: Executor + Send + Sync + 'static + Clone,
 {
     config: Config,
     tls: Tls,
@@ -31,7 +31,7 @@ impl<Tls> PostgresConnectionManager<Tls, DefaultExecutor> {
 
 impl<Tls, U> PostgresConnectionManager<Tls, U>
 where
-    U: TkExecutor + Send + Sync + 'static + Clone,
+    U: Executor + Send + Sync + 'static + Clone,
 {
     pub fn new_with_executor(config: Config, tls: Tls, executor: U) -> Self {
         PostgresConnectionManager {
@@ -48,7 +48,7 @@ where
     <Tls as MakeTlsConnect<Socket>>::Stream: Send + Sync,
     <Tls as MakeTlsConnect<Socket>>::TlsConnect: Send,
     <<Tls as MakeTlsConnect<Socket>>::TlsConnect as TlsConnect<Socket>>::Future: Send,
-    U: TkExecutor + Send + Sync + 'static + Clone,
+    U: Executor + Send + Sync + 'static + Clone,
 {
     type Connection = Client;
     type Executor = U;

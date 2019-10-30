@@ -1,15 +1,16 @@
 use mobc::futures::{compat::Future01CompatExt, TryFutureExt};
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
+use mobc::Executor;
 pub use redis;
 use redis::aio::Connection;
 use redis::Client;
 use tokio_executor::DefaultExecutor;
-use tokio_executor::Executor as TkExecutor;
+
 
 pub struct RedisConnectionManager<T>
 where
-    T: TkExecutor + Send + Sync + 'static + Clone,
+    T: Executor + Send + Sync + 'static + Clone,
 {
     client: Client,
     executor: T,
@@ -26,7 +27,7 @@ impl RedisConnectionManager<DefaultExecutor> {
 
 impl<T> RedisConnectionManager<T>
 where
-    T: TkExecutor + Send + Sync + 'static + Clone,
+    T: Executor + Send + Sync + 'static + Clone,
 {
     pub fn new_with_executor(client: Client, executor: T) -> Self {
         RedisConnectionManager { client, executor }
@@ -35,7 +36,7 @@ where
 
 impl<T> ConnectionManager for RedisConnectionManager<T>
 where
-    T: TkExecutor + Send + Sync + 'static + Clone,
+    T: Executor + Send + Sync + 'static + Clone,
 {
     type Connection = Connection;
     type Error = redis::RedisError;
