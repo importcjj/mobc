@@ -9,11 +9,12 @@ use tokio::sync::mpsc;
 use tokio_postgres::Config;
 use tokio_postgres::Error as PostgresError;
 use tokio_postgres::NoTls;
+use tokio::executor::DefaultExecutor;
 
 const MAX: usize = 5000;
 
 async fn simple_query(
-    pool: Pool<PostgresConnectionManager<NoTls>>,
+    pool: Pool<PostgresConnectionManager<NoTls, DefaultExecutor>>,
     mut sender: mpsc::Sender<()>,
 ) -> Result<(), Error<PostgresError>> {
     let conn = pool.get().await?;
