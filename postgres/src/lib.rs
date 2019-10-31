@@ -1,3 +1,4 @@
+pub use mobc;
 use mobc::futures::{FutureExt, TryFutureExt};
 use mobc::AnyFuture;
 use mobc::ConnectionManager;

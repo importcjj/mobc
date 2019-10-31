@@ -166,7 +166,7 @@ where
     manager: M,
     internals: Mutex<PoolInternals<M::Connection>>,
     conns: Mutex<mpsc::Receiver<IdleConn<M::Connection>>>,
-    initial_wg:  Mutex<mpsc::Receiver<()>>,
+    initial_wg: Mutex<mpsc::Receiver<()>>,
 }
 
 /// A generic connection pool.
@@ -389,10 +389,8 @@ fn establish_idle_connections<M>(
     }
 }
 
-fn add_connection<M>(
-    shared: &Arc<SharedPool<M>>,
-    internals: &mut PoolInternals<M::Connection>,
-) where
+fn add_connection<M>(shared: &Arc<SharedPool<M>>, internals: &mut PoolInternals<M::Connection>)
+where
     M: ConnectionManager,
 {
     debug!(
