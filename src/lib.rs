@@ -314,8 +314,9 @@ where
             futures::select! {
                 () = timeout => return Err(Error::Timeout),
                 _ = initial_wg.next() => {
-                    let internals = self.0.internals.lock().await;
+                    let mut internals = self.0.internals.lock().await;
                     if internals.num_conns == initial_size {
+                        internals.is_initial_done = true;
                         break;
                     }
                 }

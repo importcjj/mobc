@@ -12,7 +12,7 @@ keywords = ["redis", "pool", "database", "async", "await"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-mobc = { version = "0.2.0", path = ".." }
+mobc = { version = "0.2", path = ".." }
 redis = "0.13.0"
 tokio-executor = "0.2.0-alpha.6"
 
