@@ -10,14 +10,14 @@ r2d2 with async/await
 
 ```toml
 [dependencies]
-mobc = "0.2.1"
+mobc = "0.2"
 ```
 
 ## implementation
 
-* [mobc-redis = "0.2.2"](https://crates.io/crates/mobc-redis)
+* [mobc-redis = "0.2.3"](https://crates.io/crates/mobc-redis)
 
-* [mobc-postgres = "0.2.4"](https://crates.io/crates/mobc-postgres)
+* [mobc-postgres = "0.2.5"](https://crates.io/crates/mobc-postgres)
 
 **Note: mobc requires at least Rust 1.39.**
 
