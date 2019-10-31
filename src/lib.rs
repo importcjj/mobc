@@ -154,6 +154,8 @@ struct PoolInternals<C> {
     idle_conns: u32,
     pending_conns: u32,
     last_error: Option<String>,
+    is_initial_done: bool,
+    initial_done: mpsc::Sender<()>,
 }
 
 struct SharedPool<M>
@@ -164,6 +166,7 @@ where
     manager: M,
     internals: Mutex<PoolInternals<M::Connection>>,
     conns: Mutex<mpsc::Receiver<IdleConn<M::Connection>>>,
+    initial_wg:  Mutex<mpsc::Receiver<()>>,
 }
 
 /// A generic connection pool.
@@ -200,12 +203,17 @@ where
 
     async fn new_inner(config: Config<M::Executor>, manager: M, reaper_rate: Duration) -> Pool<M> {
         let (recycle, conns) = mpsc::channel(config.max_size as usize);
+        let initial_size = config.min_idle.unwrap_or(config.max_size);
+        let (initial_done, initial_wg) = mpsc::channel(initial_size as usize);
+
         let internals = PoolInternals {
             conns: recycle,
             num_conns: 0,
             pending_conns: 0,
             idle_conns: 0,
             last_error: None,
+            is_initial_done: false,
+            initial_done,
         };
 
         let shared = Arc::new(SharedPool {
@@ -213,6 +221,7 @@ where
             manager: manager,
             internals: Mutex::new(internals),
             conns: Mutex::new(conns),
+            initial_wg: Mutex::new(initial_wg),
         });
 
         let mut internals = shared.internals.lock().await;
@@ -299,11 +308,13 @@ where
         let end = Instant::now() + self.0.config.connection_timeout;
         let mut timeout = delay(end).fuse();
         let initial_size = self.0.config.min_idle.unwrap_or(self.0.config.max_size);
+        let mut initial_wg = self.0.initial_wg.lock().await;
 
         loop {
             futures::select! {
                 () = timeout => return Err(Error::Timeout),
-                internals = self.0.internals.lock() => {
+                _ = initial_wg.next() => {
+                    let internals = self.0.internals.lock().await;
                     if internals.num_conns == initial_size {
                         break;
                     }
@@ -378,8 +389,10 @@ fn establish_idle_connections<M>(
     }
 }
 
-fn add_connection<M>(shared: &Arc<SharedPool<M>>, internals: &mut PoolInternals<M::Connection>)
-where
+fn add_connection<M>(
+    shared: &Arc<SharedPool<M>>,
+    internals: &mut PoolInternals<M::Connection>,
+) where
     M: ConnectionManager,
 {
     debug!(
@@ -433,6 +446,9 @@ where
                     internals.pending_conns -= 1;
                     internals.idle_conns += 1;
                     internals.num_conns += 1;
+                    if !internals.is_initial_done {
+                        internals.initial_done.try_send(()).unwrap();
+                    }
                     drop(internals);
                 }
                 Err(err) => {
