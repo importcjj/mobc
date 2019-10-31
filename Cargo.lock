@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "mobc-postgres"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "mobc 0.2.1",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "mobc-redis"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
