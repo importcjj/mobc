@@ -71,12 +71,6 @@ where
         self
     }
 
-    pub fn max_concurrency(mut self, max_concurrency: u32) -> Self {
-        assert!(max_concurrency > 0, "max_concurrency must be positive");
-        self.max_concurrency = max_concurrency;
-        self
-    }
-
     /// Sets the minimum idle connection count maintained by the pool.
     ///
     /// If set, the pool will try to maintain at least this many idle

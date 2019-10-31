@@ -1,8 +1,8 @@
 use mobc::futures::{FutureExt, TryFutureExt};
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
-use tokio_executor::DefaultExecutor;
 use mobc::Executor;
+use tokio_executor::DefaultExecutor;
 pub use tokio_postgres;
 use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
 use tokio_postgres::Client;

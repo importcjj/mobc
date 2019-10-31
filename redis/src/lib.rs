@@ -7,7 +7,6 @@ use redis::aio::Connection;
 use redis::Client;
 use tokio_executor::DefaultExecutor;
 
-
 pub struct RedisConnectionManager<T>
 where
     T: Executor + Send + Sync + 'static + Clone,
