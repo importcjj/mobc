@@ -10,7 +10,7 @@ use tokio_executor::DefaultExecutor;
 
 pub struct RedisConnectionManager<T>
 where
-    T: Executor + Send + Sync + 'static + Clone,
+    T: Executor,
 {
     client: Client,
     executor: T,
@@ -27,7 +27,7 @@ impl RedisConnectionManager<DefaultExecutor> {
 
 impl<T> RedisConnectionManager<T>
 where
-    T: Executor + Send + Sync + 'static + Clone,
+    T: Executor,
 {
     pub fn new_with_executor(client: Client, executor: T) -> Self {
         RedisConnectionManager { client, executor }
@@ -36,7 +36,7 @@ where
 
 impl<T> ConnectionManager for RedisConnectionManager<T>
 where
-    T: Executor + Send + Sync + 'static + Clone,
+    T: Executor,
 {
     type Connection = Connection;
     type Error = redis::RedisError;

@@ -6,7 +6,7 @@ use tokio_executor::Executor as TkExecutor;
 
 /// A value that executes futures.
 /// see [tokio::Executor](https://docs.rs/tokio/0.2.0-alpha.6/tokio/executor/trait.Executor.html)
-pub trait Executor {
+pub trait Executor: Send + Sync + 'static + Clone {
     /// Spawns a future object to run on this executor.
     ///
     /// `future` is passed to the executor, which will begin running it. The
@@ -31,7 +31,7 @@ pub trait Executor {
 
 impl<T> Executor for T
 where
-    T: TkExecutor,
+    T: TkExecutor + Send + Sync + 'static + Clone,
 {
     fn spawn(
         &mut self,

@@ -13,7 +13,7 @@ use tokio_postgres::Socket;
 
 pub struct PostgresConnectionManager<Tls, U>
 where
-    U: Executor + Send + Sync + 'static + Clone,
+    U: Executor,
 {
     config: Config,
     tls: Tls,
@@ -32,7 +32,7 @@ impl<Tls> PostgresConnectionManager<Tls, DefaultExecutor> {
 
 impl<Tls, U> PostgresConnectionManager<Tls, U>
 where
-    U: Executor + Send + Sync + 'static + Clone,
+    U: Executor,
 {
     pub fn new_with_executor(config: Config, tls: Tls, executor: U) -> Self {
         PostgresConnectionManager {
@@ -49,7 +49,7 @@ where
     <Tls as MakeTlsConnect<Socket>>::Stream: Send + Sync,
     <Tls as MakeTlsConnect<Socket>>::TlsConnect: Send,
     <<Tls as MakeTlsConnect<Socket>>::TlsConnect as TlsConnect<Socket>>::Future: Send,
-    U: Executor + Send + Sync + 'static + Clone,
+    U: Executor,
 {
     type Connection = Client;
     type Executor = U;
