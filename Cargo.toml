@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -15,9 +15,9 @@ log = "0.4"
 tokio-executor = "0.2.0-alpha.6"
 tokio-timer = "0.3.0-alpha.5"
 
-[dependencies.futures-preview]
-version = "=0.3.0-alpha.19"
-features = ["compat", "async-await"]
+[dependencies.futures]
+version = "0.3"
+features = ["compat"]
 
 [dev-dependencies]
 criterion = "0.3.0"
