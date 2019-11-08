@@ -259,13 +259,14 @@ where
         let end = start + timeout;
         let timeout = delay(end);
 
-        // println!("get timeout");
+        debug!("try to lock the conns");
         let mut conns = self.0.conns.lock().await;
         debug!("waiting for get timeout");
         futures::select! {
             () = timeout.fuse() => Err(Error::Timeout),
             r = conns.next() => match r {
                 Some(conn) => {
+                    drop(conns);
                     debug!("get conn");
                     let mut internals = self.0.internals.lock().await;
                     internals.idle_conns -= 1;
