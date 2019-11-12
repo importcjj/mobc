@@ -4,6 +4,9 @@ use std::fmt;
 use std::pin::Pin;
 use tokio_executor::Executor as TkExecutor;
 
+// A new type exports the default executor of Tokio..
+// pub type DefaultExecutor = DefaultExecutor;
+
 /// A value that executes futures.
 /// see [tokio::Executor](https://docs.rs/tokio/0.2.0-alpha.6/tokio/executor/trait.Executor.html)
 pub trait Executor: Send + Sync + 'static + Clone {

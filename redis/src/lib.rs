@@ -2,11 +2,11 @@ pub use mobc;
 use mobc::futures::{compat::Future01CompatExt, TryFutureExt};
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
+use mobc::DefaultExecutor;
 use mobc::Executor;
 pub use redis;
 use redis::aio::Connection;
 use redis::Client;
-use tokio_executor::DefaultExecutor;
 
 pub struct RedisConnectionManager<T>
 where

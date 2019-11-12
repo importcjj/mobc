@@ -23,7 +23,6 @@ with-uuid-0_7 = ["tokio-postgres/with-uuid-0_7"]
 mobc = { version = "0.2", path = ".." }
 tokio-postgres = "=0.5.0-alpha.1"
 futures_01 = { version = "0.1", package = "futures"}
-tokio-executor = "0.2.0-alpha.6"
 
 [dev-dependencies]
 tokio = "0.2.0-alpha.6"

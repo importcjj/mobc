@@ -60,6 +60,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
+pub use tokio_executor::DefaultExecutor;
 use tokio_timer::{delay, Interval};
 
 static CONNECTION_ID: AtomicUsize = AtomicUsize::new(0);
