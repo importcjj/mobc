@@ -18,14 +18,14 @@ A generic connection pool, but async/.await
 
 ```toml
 [dependencies]
-mobc = "0.2.7"
+mobc = "0.2.8"
 ```
 
 ## implementation
 
 * [mobc-redis = "0.2.6"](https://crates.io/crates/mobc-redis)
 
-* [mobc-postgres = "0.2.8"](https://crates.io/crates/mobc-postgres)
+* [mobc-postgres = "0.2.9"](https://crates.io/crates/mobc-postgres)
 
 
 

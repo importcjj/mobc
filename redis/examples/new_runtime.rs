@@ -43,7 +43,7 @@ async fn do_redis(
         let pool = pool.clone();
         let tx = sender.clone();
         let task = single_request(pool, tx).map(|_| ());
-        executor.spawn(Box::pin(task)).unwrap();
+        executor.spawn(Box::pin(task));
     }
     Ok(())
 }

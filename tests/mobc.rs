@@ -378,7 +378,7 @@ fn test_idle_timeout() {
             .await?;
 
         let conn = pool.get().await.unwrap();
-        delay_for(Duration::from_secs(2)).await;
+        delay_for(Duration::from_secs(3)).await;
         assert_eq!(4, DROPPED.load(Ordering::SeqCst));
         drop(conn);
         assert_eq!(4, DROPPED.load(Ordering::SeqCst));

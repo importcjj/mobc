@@ -2,6 +2,7 @@ use mobc::futures::channel::mpsc;
 use mobc::futures::prelude::*;
 use mobc::runtime::DefaultExecutor;
 use mobc::runtime::Runtime;
+use mobc::Executor;
 use mobc::runtime::TaskExecutor;
 use mobc::Error;
 use mobc::Pool;
