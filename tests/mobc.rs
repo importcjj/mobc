@@ -1,4 +1,3 @@
-#![feature(async_closure)]
 use mobc::futures;
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
@@ -8,9 +7,8 @@ use std::error;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
-use tokio::runtime::TaskExecutor;
-use tokio::timer::delay_for;
+
+use mobc::runtime::{delay_for, Runtime, TaskExecutor};
 
 #[derive(Debug, PartialEq)]
 pub struct TestError;
@@ -90,7 +88,7 @@ impl ConnectionManager for NthConnectFailManager {
 #[test]
 fn test_max_size_ok() {
     let rt = Runtime::new().unwrap();
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = NthConnectFailManager {
             num: AtomicIsize::new(5),
             executor: rt.executor(),
@@ -101,15 +99,15 @@ fn test_max_size_ok() {
         for _ in 0..5 {
             conns.push(pool.get().await.ok().unwrap());
         }
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
 #[test]
 fn test_acquire_release() {
     let rt = Runtime::new().unwrap();
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = OkManager {
             executor: rt.executor(),
         };
@@ -121,15 +119,15 @@ fn test_acquire_release() {
         let conn3 = pool.get().await.ok().unwrap();
         drop(conn2);
         drop(conn3);
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
 #[test]
 fn test_try_get() {
     let rt = Runtime::new().unwrap();
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = OkManager {
             executor: rt.executor(),
         };
@@ -146,15 +144,15 @@ fn test_try_get() {
         drop(conn1);
         delay_for(Duration::from_secs(1)).await;
         assert!(pool.try_get().await.is_some());
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
 #[test]
 fn test_get_timeout() {
     let rt = Runtime::new().unwrap();
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = OkManager {
             executor: rt.executor(),
         };
@@ -186,8 +184,8 @@ fn test_get_timeout() {
         println!("cost {:?}", start.elapsed());
         assert!(fails.is_err());
 
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
@@ -237,7 +235,7 @@ fn test_drop_on_broken() {
         }
     }
 
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = Hanlder {
             executor: rt.executor(),
         };
@@ -246,15 +244,15 @@ fn test_drop_on_broken() {
         drop(pool.get().await.ok().unwrap());
         delay_for(Duration::from_secs(1)).await;
         assert!(DROPPED.load(Ordering::SeqCst));
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
 #[test]
 fn test_initialization_failure() {
     let rt = Runtime::new().unwrap();
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = NthConnectFailManager {
             num: AtomicIsize::new(0),
             executor: rt.executor(),
@@ -271,15 +269,15 @@ fn test_initialization_failure() {
             _ => panic!("{:?} expected"),
         }
 
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
 #[test]
 fn test_lazy_initialization_failure() {
     let rt = Runtime::new().unwrap();
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = NthConnectFailManager {
             num: AtomicIsize::new(0),
             executor: rt.executor(),
@@ -295,15 +293,15 @@ fn test_lazy_initialization_failure() {
             _ => panic!("{:?} expected"),
         }
 
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
 #[test]
 fn test_get_global_timeout() {
     let rt = Runtime::new().unwrap();
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = OkManager {
             executor: rt.executor(),
         };
@@ -318,8 +316,8 @@ fn test_get_global_timeout() {
         pool.get().await.err().unwrap();
         assert_eq!(started_waiting.elapsed().as_secs(), 1);
 
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
@@ -367,7 +365,7 @@ fn test_idle_timeout() {
         }
     }
 
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = Hanlder {
             num: AtomicIsize::new(5),
             executor: rt.executor(),
@@ -384,8 +382,8 @@ fn test_idle_timeout() {
         assert_eq!(4, DROPPED.load(Ordering::SeqCst));
         drop(conn);
         assert_eq!(4, DROPPED.load(Ordering::SeqCst));
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
@@ -433,7 +431,7 @@ fn test_idle_timeout_partial_use() {
         }
     }
 
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = Hanlder {
             num: AtomicIsize::new(5),
             executor: rt.executor(),
@@ -454,8 +452,8 @@ fn test_idle_timeout_partial_use() {
         // TODO
         // assert_eq!(4, DROPPED.load(Ordering::SeqCst));
         // assert_eq!(1, pool.state().await.connections);
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
@@ -503,7 +501,7 @@ fn test_max_lifetime() {
         }
     }
 
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = Hanlder {
             num: AtomicIsize::new(5),
             executor: rt.executor(),
@@ -522,8 +520,8 @@ fn test_max_lifetime() {
         drop(conn);
         delay_for(Duration::from_secs(2)).await;
         assert_eq!(5, DROPPED.load(Ordering::SeqCst));
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
@@ -559,7 +557,7 @@ fn test_min_idle() {
         }
     }
 
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = Hanlder {
             executor: rt.executor(),
         };
@@ -586,8 +584,8 @@ fn test_min_idle() {
         delay_for(Duration::from_secs(1)).await;
         assert_eq!(5_u32, pool.state().await.idle_connections);
         assert_eq!(5_u32, pool.state().await.connections);
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }
 
@@ -629,7 +627,7 @@ fn test_conns_drop_on_pool_drop() {
             false
         }
     }
-    rt.block_on((async || -> Result<(), Error<TestError>> {
+    rt.block_on(async {
         let handler = Hanlder {
             executor: rt.executor(),
         };
@@ -649,7 +647,7 @@ fn test_conns_drop_on_pool_drop() {
 
         panic!("timed out waiting for connections to drop");
 
-        Ok(())
-    })())
+        Ok::<(), Error<TestError>>(())
+    })
     .unwrap();
 }

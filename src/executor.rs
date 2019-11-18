@@ -1,8 +1,8 @@
+//! A value that executes futures.
 use futures::Future;
 use std::error::Error;
 use std::fmt;
 use std::pin::Pin;
-use tokio_executor::Executor as TkExecutor;
 
 // A new type exports the default executor of Tokio..
 // pub type DefaultExecutor = DefaultExecutor;
@@ -32,35 +32,13 @@ pub trait Executor: Send + Sync + 'static + Clone {
     }
 }
 
-impl<T> Executor for T
-where
-    T: TkExecutor + Send + Sync + 'static + Clone,
-{
-    fn spawn(
-        &mut self,
-        future: Pin<Box<dyn Future<Output = ()> + Send>>,
-    ) -> Result<(), SpawnError> {
-        match TkExecutor::spawn(self, future) {
-            Ok(()) => Ok(()),
-            Err(err) => Err(SpawnError {
-                is_shutdown: err.is_shutdown(),
-            }),
-        }
-    }
-
-    fn status(&self) -> Result<(), SpawnError> {
-        match TkExecutor::status(self) {
-            Ok(()) => Ok(()),
-            Err(err) => Err(SpawnError {
-                is_shutdown: err.is_shutdown(),
-            }),
-        }
-    }
-}
-
 #[derive(Debug)]
+/// Errors returned by Executor::spawn.
+/// Spawn errors should represent relatively rare scenarios. Currently, the two scenarios represented by SpawnError are:
+/// An executor being at capacity or full. As such, the executor is not able to accept a new future. This error state is expected to be transient.
+/// An executor has been shutdown and can no longer accept new futures. This error state is expected to be permanent.
 pub struct SpawnError {
-    is_shutdown: bool,
+    pub(crate) is_shutdown: bool,
 }
 
 impl fmt::Display for SpawnError {

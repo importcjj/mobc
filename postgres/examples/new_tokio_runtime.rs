@@ -1,12 +1,14 @@
+use mobc::futures::channel::mpsc;
+use mobc::futures::prelude::*;
+use mobc::runtime::DefaultExecutor;
+use mobc::runtime::Runtime;
+use mobc::runtime::TaskExecutor;
 use mobc::Error;
 use mobc::Pool;
 use mobc_postgres::tokio_postgres;
 use mobc_postgres::PostgresConnectionManager;
 use std::str::FromStr;
 use std::time::Instant;
-use tokio::executor::DefaultExecutor;
-use tokio::prelude::*;
-use tokio::sync::mpsc;
 use tokio_postgres::Config;
 use tokio_postgres::Error as PostgresError;
 use tokio_postgres::NoTls;
@@ -18,14 +20,16 @@ async fn simple_query(
     mut sender: mpsc::Sender<()>,
 ) -> Result<(), Error<PostgresError>> {
     let conn = pool.get().await?;
-    // let statement = conn.prepare("SELECT 1").await?;
     let r = conn.execute("SELECT 1", &[]).await?;
     assert_eq!(r, 1);
     sender.send(()).await.unwrap();
     Ok(())
 }
 
-async fn do_postgres(sender: mpsc::Sender<()>) -> Result<(), Error<PostgresError>> {
+async fn do_postgres(
+    mut executor: TaskExecutor,
+    sender: mpsc::Sender<()>,
+) -> Result<(), Error<PostgresError>> {
     let config = Config::from_str("postgres://jiaju:jiaju@localhost:5432")?;
     let manager = PostgresConnectionManager::new(config, NoTls);
     let pool = Pool::new(manager).await?;
@@ -33,20 +37,18 @@ async fn do_postgres(sender: mpsc::Sender<()>) -> Result<(), Error<PostgresError
     for _ in 0..MAX {
         let pool = pool.clone();
         let tx = sender.clone();
-        tokio::spawn(simple_query(pool, tx).map(|_| ()));
+        let task = simple_query(pool, tx).map(|_| ());
+        executor.spawn(Box::pin(task));
     }
 
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
+async fn try_main(executor: TaskExecutor) -> Result<(), Error<PostgresError>> {
     let mark = Instant::now();
     let (tx, mut rx) = mpsc::channel::<()>(MAX);
 
-    if let Err(e) = do_postgres(tx).await {
-        println!("some error {}", e.to_string());
-    }
+    do_postgres(executor, tx).await.unwrap();
 
     let mut num: usize = 0;
     while let Some(_) = rx.next().await {
@@ -57,4 +59,11 @@ async fn main() {
     }
 
     println!("cost {:?}", mark.elapsed());
+    Ok(())
+}
+
+fn main() {
+    env_logger::init();
+    let rt = Runtime::new().unwrap();
+    rt.block_on(try_main(rt.executor())).unwrap();
 }

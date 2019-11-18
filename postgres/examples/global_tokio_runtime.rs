@@ -1,6 +1,3 @@
-# mobc-postgres
-
-```rust
 use mobc::futures::channel::mpsc;
 use mobc::futures::prelude::*;
 use mobc::runtime::DefaultExecutor;
@@ -59,5 +56,3 @@ async fn main() {
 
     println!("cost {:?}", mark.elapsed());
 }
-
-```

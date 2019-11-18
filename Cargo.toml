@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.2.6"
+version = "0.2.7"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -11,10 +11,15 @@ keywords = ["database", "pool", "async", "await"]
 documentation = "https://docs.rs/mobc/latest/mobc/"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["tokio-runtime"]
+tokio-runtime = ["tokio"]
+async-std-runtime = ["async-std"]
+
 [dependencies]
 log = "0.4"
-tokio-executor = "0.2.0-alpha.6"
-tokio-timer = "0.3.0-alpha.5"
+tokio = { version = "0.2.0-alpha.6", optional = true }
+async-std = { version = "1.0.1", features = ["unstable"], optional = true }
 
 [dependencies.futures]
 version = "0.3"
@@ -23,6 +28,7 @@ features = ["compat"]
 [dev-dependencies]
 criterion = "0.3.0"
 tokio = "0.2.0-alpha.6"
+async-std = { version = "1.0.1", features = ["unstable"] }
 
 [workspace]
 members = [

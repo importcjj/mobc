@@ -1,8 +1,8 @@
 pub use mobc;
 use mobc::futures::{compat::Future01CompatExt, TryFutureExt};
+use mobc::runtime::DefaultExecutor;
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
-use mobc::DefaultExecutor;
 use mobc::Executor;
 pub use redis;
 use redis::aio::Connection;

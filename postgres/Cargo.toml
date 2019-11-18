@@ -1,6 +1,6 @@
 [package]
 name = "mobc-postgres"
-version = "0.2.7"
+version = "0.2.8"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -11,12 +11,16 @@ keywords = ["postgres", "pool", "database", "async", "await"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+default = ["mobc/tokio-runtime"]
+
 with-bit-vec-0_6 = ["tokio-postgres/with-bit-vec-0_6"]
 with-chrono-0_4 = ["tokio-postgres/with-chrono-0_4"]
 with-eui48-0_4 = ["tokio-postgres/with-eui48-0_4"]
 with-geo-types-0_4 = ["tokio-postgres/with-geo-types-0_4"]
 with-serde_json-1 = ["tokio-postgres/with-serde_json-1"]
 with-uuid-0_7 = ["tokio-postgres/with-uuid-0_7"]
+
+
 # with-uuid-0_8 = ["tokio-postgres/with-uuid-0_8"]
 
 [dependencies]
@@ -26,3 +30,5 @@ futures_01 = { version = "0.1", package = "futures"}
 
 [dev-dependencies]
 tokio = "0.2.0-alpha.6"
+async-std = { version = "1.0", features = ["unstable"] }
+env_logger = "0.7.1"

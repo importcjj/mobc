@@ -41,7 +41,9 @@
 
 #![warn(missing_docs)]
 mod config;
-mod executor;
+pub mod executor;
+pub mod runtime;
+mod timer;
 
 use config::Builder;
 use config::Config;
@@ -60,8 +62,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
-pub use tokio_executor::DefaultExecutor;
-use tokio_timer::{delay, Interval};
 
 static CONNECTION_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -252,13 +252,11 @@ where
     ///
     /// The given timeout will be used instead of the configured connection
     /// timeout.
-    pub async fn get_timeout<E>(&self, timeout: Duration) -> Result<PooledConnection<M>, Error<E>>
+    pub async fn get_timeout<E>(&self, dur: Duration) -> Result<PooledConnection<M>, Error<E>>
     where
         Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
     {
-        let start = Instant::now();
-        let end = start + timeout;
-        let timeout = delay(end);
+        let timeout = timer::timeout(dur);
 
         debug!("try to lock the conns");
         let mut conns = self.0.conns.lock().await;
@@ -307,8 +305,7 @@ where
         Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
     {
         debug!("waiting for initialization");
-        let end = Instant::now() + self.0.config.connection_timeout;
-        let mut timeout = delay(end).fuse();
+        let mut timeout = timer::timeout(self.0.config.connection_timeout).fuse();
         let initial_size = self.0.config.min_idle.unwrap_or(self.0.config.max_size);
         let mut initial_wg = self.0.initial_wg.lock().await;
 
@@ -412,7 +409,7 @@ where
     where
         M: ConnectionManager,
     {
-        debug!("inner add connection");
+        // debug!("inner add connection");
         let new_shared = Arc::downgrade(shared);
         let _ = shared.config.executor.clone().spawn(Box::pin(async move {
             let shared = match new_shared.upgrade() {
@@ -453,6 +450,7 @@ where
                     drop(internals);
                 }
                 Err(err) => {
+                    println!("err {:?}", err);
                     shared.internals.lock().await.last_error = Some(err.to_string());
                     let delay = Duration::from_millis(200);
                     inner(delay, &shared);
@@ -472,7 +470,7 @@ where
         .get_executor()
         .clone()
         .spawn(Box::pin(async move {
-            while let Some(_) = Interval::new_interval(reaper_rate).next().await {
+            while let Some(_) = timer::interval(reaper_rate).next().await {
                 debug!("start reaping");
                 reap_conn(&new_shared).await;
             }

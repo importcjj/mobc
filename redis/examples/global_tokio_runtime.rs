@@ -1,7 +1,3 @@
-# mobc_redis
-
-
-```rust
 use mobc::futures::channel::mpsc;
 use mobc::futures::compat::Future01CompatExt;
 use mobc::futures::prelude::*;
@@ -63,5 +59,3 @@ async fn main() {
 
     println!("cost {:?}", mark.elapsed());
 }
-
-```

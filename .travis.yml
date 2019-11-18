@@ -12,5 +12,6 @@ matrix:
 cache: cargo
 script:
   - cargo build --verbose --all
-  - cargo test --verbose --all
+  - cargo test --verbose --all --features async-std-runtime
+  - cargo test --verbose --all --features tokio-runtime
   # - cargo bench

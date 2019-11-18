@@ -1,17 +1,19 @@
+use mobc::futures::channel::mpsc;
 use mobc::futures::compat::Future01CompatExt;
+use mobc::futures::prelude::*;
+use mobc::runtime::Runtime;
+use mobc::runtime::TaskExecutor;
 use mobc::Error;
+use mobc::Executor;
 use mobc::Pool;
 use mobc_redis::redis::{self, RedisError};
 use mobc_redis::RedisConnectionManager;
 use std::time::Instant;
-use tokio::executor::DefaultExecutor;
-use tokio::prelude::*;
-use tokio::sync::mpsc;
 
 const MAX: usize = 5000;
 
 async fn single_request(
-    pool: Pool<RedisConnectionManager<DefaultExecutor>>,
+    pool: Pool<RedisConnectionManager<TaskExecutor>>,
     mut sender: mpsc::Sender<()>,
 ) -> Result<(), Error<RedisError>> {
     let mut conn = pool.get().await?;
@@ -29,26 +31,28 @@ async fn single_request(
     Ok(())
 }
 
-async fn do_redis(sender: mpsc::Sender<()>) -> Result<(), Error<RedisError>> {
+async fn do_redis(
+    mut executor: TaskExecutor,
+    sender: mpsc::Sender<()>,
+) -> Result<(), Error<RedisError>> {
     let client = redis::Client::open("redis://127.0.0.1").unwrap();
-    let manager = RedisConnectionManager::new(client);
+    let manager = RedisConnectionManager::new_with_executor(client, executor.clone());
     let pool = Pool::builder().max_size(40).build(manager).await?;
 
     for _ in 0..MAX {
         let pool = pool.clone();
         let tx = sender.clone();
-        tokio::spawn(single_request(pool, tx).map(|_| ()));
+        let task = single_request(pool, tx).map(|_| ());
+        executor.spawn(Box::pin(task)).unwrap();
     }
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
+async fn try_main(executor: TaskExecutor) -> Result<(), Error<RedisError>> {
     let mark = Instant::now();
     let (tx, mut rx) = mpsc::channel::<()>(MAX);
-    if let Err(e) = do_redis(tx).await {
-        println!("some error {}", e.to_string());
-    }
+    do_redis(executor, tx).await?;
+
     let mut num: usize = 0;
     while let Some(_) = rx.next().await {
         num += 1;
@@ -58,4 +62,11 @@ async fn main() {
     }
 
     println!("cost {:?}", mark.elapsed());
+    Ok(())
+}
+
+fn main() {
+    env_logger::init();
+    let rt = Runtime::new().unwrap();
+    rt.block_on(try_main(rt.executor())).unwrap();
 }

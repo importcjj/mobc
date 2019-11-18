@@ -1,7 +1,4 @@
-# mobc_redis
-
-
-```rust
+use async_std::task;
 use mobc::futures::channel::mpsc;
 use mobc::futures::compat::Future01CompatExt;
 use mobc::futures::prelude::*;
@@ -41,17 +38,15 @@ async fn do_redis(sender: mpsc::Sender<()>) -> Result<(), Error<RedisError>> {
     for _ in 0..MAX {
         let pool = pool.clone();
         let tx = sender.clone();
-        tokio::spawn(single_request(pool, tx).map(|_| ()));
+        task::spawn(single_request(pool, tx).map(|_| ()));
     }
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
-    env_logger::init();
+async fn try_main() -> Result<(), Error<RedisError>> {
     let mark = Instant::now();
     let (tx, mut rx) = mpsc::channel::<()>(MAX);
-    do_redis(tx).await.unwrap();
+    do_redis(tx).await?;
 
     let mut num: usize = 0;
     while let Some(_) = rx.next().await {
@@ -62,6 +57,10 @@ async fn main() {
     }
 
     println!("cost {:?}", mark.elapsed());
+    Ok(())
 }
 
-```
+fn main() {
+    env_logger::init();
+    task::block_on(try_main()).unwrap();
+}
