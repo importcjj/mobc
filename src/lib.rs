@@ -450,7 +450,6 @@ where
                     drop(internals);
                 }
                 Err(err) => {
-                    println!("err {:?}", err);
                     shared.internals.lock().await.last_error = Some(err.to_string());
                     let delay = Duration::from_millis(200);
                     inner(delay, &shared);
