@@ -49,7 +49,7 @@ impl ConnectionManager for OkManager {
         Box::pin(futures::future::ok(conn))
     }
 
-    fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+    fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
         false
     }
 }
@@ -80,7 +80,7 @@ impl ConnectionManager for NthConnectFailManager {
         Box::pin(futures::future::ok(conn))
     }
 
-    fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+    fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
         false
     }
 }
@@ -230,7 +230,7 @@ fn test_drop_on_broken() {
             Box::pin(futures::future::ok(conn))
         }
 
-        fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
             true
         }
     }
@@ -360,7 +360,7 @@ fn test_idle_timeout() {
             Box::pin(futures::future::ok(conn))
         }
 
-        fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
             false
         }
     }
@@ -426,7 +426,7 @@ fn test_idle_timeout_partial_use() {
             Box::pin(futures::future::ok(conn))
         }
 
-        fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
             false
         }
     }
@@ -443,7 +443,7 @@ fn test_idle_timeout_partial_use() {
             .build(handler)
             .await?;
 
-        for i in 0..8_u8 {
+        for _i in 0..8_u8 {
             delay_for(Duration::from_millis(250)).await;
             pool.get().await.unwrap();
         }
@@ -496,7 +496,7 @@ fn test_max_lifetime() {
             Box::pin(futures::future::ok(conn))
         }
 
-        fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
             false
         }
     }
@@ -552,7 +552,7 @@ fn test_min_idle() {
             Box::pin(futures::future::ok(conn))
         }
 
-        fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
             false
         }
     }
@@ -623,7 +623,7 @@ fn test_conns_drop_on_pool_drop() {
             Box::pin(futures::future::ok(conn))
         }
 
-        fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
+        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
             false
         }
     }
