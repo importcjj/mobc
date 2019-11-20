@@ -1,5 +1,19 @@
 # mobc_redis
 
+## Compatibility
+
+Things got to be a little strange, the async-API of `redis-rs` is built with tokio 0.1, and they can run in a runtime built with async-std! But tokio-postgres which is built with tokio 0.2  is not lucky. When redis-rs has released a new version bases on tokio 0.2, it will also not compatible with async-std
+
+## Cargo Features
+
+```toml
+[features]
+default = ["tokio-runtime"]
+tokio-runtime = ["mobc/tokio-runtime"]
+async-std-runtime = ["mobc/async-std-runtime"]
+```
+
+## Examples
 
 ```rust
 use mobc::futures::channel::mpsc;

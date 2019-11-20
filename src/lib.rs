@@ -55,6 +55,7 @@ use futures::Future;
 use futures::FutureExt;
 use futures::StreamExt;
 use log::debug;
+use log::error;
 use std::error;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -450,6 +451,7 @@ where
                     drop(internals);
                 }
                 Err(err) => {
+                    error!("mobc failed to connect: {:?}", err);
                     shared.internals.lock().await.last_error = Some(err.to_string());
                     let delay = Duration::from_millis(200);
                     inner(delay, &shared);

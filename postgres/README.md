@@ -1,5 +1,11 @@
 # mobc-postgres
 
+## Compatibility
+
+`tokio-postgres` is built with `tokio 0.2`, and it can't run in the Runtime built with `async-std`, if you do, you will get an error from tokio which is ` Custom { kind: Other, error: "no current reactor" }`.
+
+## Examples
+
 ```rust
 use mobc::futures::channel::mpsc;
 use mobc::futures::prelude::*;
