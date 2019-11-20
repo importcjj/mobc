@@ -32,7 +32,7 @@ async fn do_postgres(
     sender: mpsc::Sender<()>,
 ) -> Result<(), Error<PostgresError>> {
     let config = Config::from_str("postgres://jiaju:jiaju@localhost:5432")?;
-    let manager = PostgresConnectionManager::new(config, NoTls);
+    let manager = PostgresConnectionManager::new_with_executor(config, NoTls, executor.clone());
     let pool = Pool::new(manager).await?;
 
     for _ in 0..MAX {
