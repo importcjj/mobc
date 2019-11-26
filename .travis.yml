@@ -10,7 +10,7 @@ matrix:
 
 cache: cargo
 script:
-  - cargo build --verbose --all
-  - cargo test --verbose --all --features async-std-runtime
-  - cargo test --verbose --all --features tokio-runtime
+  - RUST_BACKTRACE=1 cargo build --verbose --all
+  - RUST_BACKTRACE=1 cargo test --verbose --all --features async-std-runtime
+  - RUST_BACKTRACE=1 cargo test --verbose --all --features tokio-runtime
   # - cargo bench
