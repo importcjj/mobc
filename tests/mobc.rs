@@ -265,8 +265,8 @@ fn test_initialization_failure() {
             .unwrap();
 
         match err {
-            Error::Timeout => (),
-            _ => panic!("{:?} expected"),
+            Error::Inner(TestError) => (),
+            _ => panic!("error unexpected"),
         }
 
         Ok::<(), Error<TestError>>(())
@@ -640,14 +640,12 @@ fn test_conns_drop_on_pool_drop() {
         drop(pool);
         for _ in 0..10_u8 {
             if DROPPED.load(Ordering::SeqCst) == 10 {
-                return Ok(());
+                return Ok::<(), Error<TestError>>(());
             }
             delay_for(Duration::from_secs(1)).await;
         }
 
         panic!("timed out waiting for connections to drop");
-
-        Ok::<(), Error<TestError>>(())
     })
     .unwrap();
 }

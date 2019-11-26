@@ -6,9 +6,8 @@
 use crate::executor::SpawnError;
 use crate::Executor;
 use futures::Future;
-use std::time::Duration;
 use std::pin::Pin;
-
+use std::time::Duration;
 
 #[cfg(feature = "tokio-runtime")]
 #[cfg(not(feature = "async-std-runtime"))]

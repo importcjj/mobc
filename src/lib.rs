@@ -56,6 +56,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use log::debug;
 use log::error;
+use std::cmp;
 use std::error;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -155,7 +156,6 @@ struct PoolInternals<C> {
     num_conns: u32,
     idle_conns: u32,
     pending_conns: u32,
-    last_error: Option<String>,
     is_initial_done: bool,
     initial_done: mpsc::Sender<()>,
 }
@@ -169,6 +169,7 @@ where
     internals: Mutex<PoolInternals<M::Connection>>,
     conns: Mutex<mpsc::Receiver<IdleConn<M::Connection>>>,
     initial_wg: Mutex<mpsc::Receiver<()>>,
+    last_error: Mutex<Option<Error<M::Error>>>,
 }
 
 /// A generic connection pool.
@@ -191,10 +192,7 @@ where
     M: ConnectionManager,
 {
     /// Creates a new connection pool with a default configuration.
-    pub async fn new<E>(manager: M) -> Result<Pool<M>, Error<E>>
-    where
-        Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
-    {
+    pub async fn new(manager: M) -> Result<Pool<M>, Error<M::Error>> {
         Pool::builder().build(manager).await
     }
 
@@ -213,7 +211,6 @@ where
             num_conns: 0,
             pending_conns: 0,
             idle_conns: 0,
-            last_error: None,
             is_initial_done: false,
             initial_done,
         };
@@ -224,6 +221,7 @@ where
             internals: Mutex::new(internals),
             conns: Mutex::new(conns),
             initial_wg: Mutex::new(initial_wg),
+            last_error: Mutex::new(None),
         });
 
         let mut internals = shared.internals.lock().await;
@@ -242,10 +240,7 @@ where
     ///
     /// Waits for at most the configured connection timeout before returning an
     /// error.
-    pub async fn get<E>(&self) -> Result<PooledConnection<M>, Error<E>>
-    where
-        Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
-    {
+    pub async fn get(&self) -> Result<PooledConnection<M>, Error<M::Error>> {
         self.get_timeout(self.0.config.connection_timeout).await
     }
 
@@ -253,10 +248,7 @@ where
     ///
     /// The given timeout will be used instead of the configured connection
     /// timeout.
-    pub async fn get_timeout<E>(&self, dur: Duration) -> Result<PooledConnection<M>, Error<E>>
-    where
-        Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
-    {
+    pub async fn get_timeout(&self, dur: Duration) -> Result<PooledConnection<M>, Error<M::Error>> {
         let timeout = timer::timeout(dur);
 
         debug!("try to lock the conns");
@@ -301,27 +293,31 @@ where
         }
     }
 
-    async fn wait_for_initialization<E>(&self) -> Result<(), Error<E>>
-    where
-        Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
-    {
+    async fn wait_for_initialization(&self) -> Result<(), Error<M::Error>> {
         debug!("waiting for initialization");
         let mut timeout = timer::timeout(self.0.config.connection_timeout).fuse();
         let initial_size = self.0.config.min_idle.unwrap_or(self.0.config.max_size);
         let mut initial_wg = self.0.initial_wg.lock().await;
+        let mut initial_count = 0;
 
         loop {
             futures::select! {
-                () = timeout => return Err(Error::Timeout),
+                () = timeout => break,
                 _ = initial_wg.next() => {
+                    initial_count += 1;
                     let mut internals = self.0.internals.lock().await;
-                    if internals.num_conns == initial_size {
+                    if initial_count == initial_size {
+                        println!("initial ok");
                         internals.is_initial_done = true;
-                        break;
+                        break
                     }
                 }
 
             }
+        }
+
+        if let Some(e) = self.0.last_error.lock().await.take() {
+            return Err(e);
         }
 
         Ok(())
@@ -406,7 +402,7 @@ where
     internals.pending_conns += 1;
     inner(Duration::from_secs(0), shared);
 
-    fn inner<M>(_delay: Duration, shared: &Arc<SharedPool<M>>)
+    fn inner<M>(delay: Duration, shared: &Arc<SharedPool<M>>)
     where
         M: ConnectionManager,
     {
@@ -424,8 +420,7 @@ where
                     debug!("adding connection");
                     let id = CONNECTION_ID.fetch_add(1, Ordering::Relaxed) as u64;
                     let mut internals = shared.internals.lock().await;
-
-                    internals.last_error = None;
+                    *shared.last_error.lock().await = None;
                     let now = Instant::now();
                     let mut conn = IdleConn {
                         conn: Conn {
@@ -452,8 +447,15 @@ where
                 }
                 Err(err) => {
                     error!("mobc failed to connect: {:?}", err);
-                    shared.internals.lock().await.last_error = Some(err.to_string());
-                    let delay = Duration::from_millis(200);
+                    *shared.last_error.lock().await = Some(Error::Inner(err));
+                    let mut internals = shared.internals.lock().await;
+                    if !internals.is_initial_done {
+                        if internals.initial_done.try_send(()).err().is_some() {
+                            return;
+                        };
+                    }
+                    let delay = cmp::max(Duration::from_millis(200), delay);
+                    let delay = cmp::min(shared.config.connection_timeout / 2, delay * 2);
                     inner(delay, &shared);
                 }
             }

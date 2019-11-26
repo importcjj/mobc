@@ -165,10 +165,7 @@ where
     /// # Panics
     ///
     /// Panics if `min_idle` is greater than `max_size`.
-    pub async fn build<E>(self, manager: M) -> Result<Pool<M>, Error<E>>
-    where
-        Error<E>: std::convert::From<<M as ConnectionManager>::Error>,
-    {
+    pub async fn build(self, manager: M) -> Result<Pool<M>, Error<M::Error>> {
         let pool = self.build_unchecked(manager).await;
         pool.wait_for_initialization().await?;
         Ok(pool)

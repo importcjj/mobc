@@ -2,9 +2,9 @@ use mobc::futures::channel::mpsc;
 use mobc::futures::prelude::*;
 use mobc::runtime::DefaultExecutor;
 use mobc::runtime::Runtime;
-use mobc::Executor;
 use mobc::runtime::TaskExecutor;
 use mobc::Error;
+use mobc::Executor;
 use mobc::Pool;
 use mobc_postgres::tokio_postgres;
 use mobc_postgres::PostgresConnectionManager;
@@ -17,7 +17,7 @@ use tokio_postgres::NoTls;
 const MAX: usize = 5000;
 
 async fn simple_query(
-    pool: Pool<PostgresConnectionManager<NoTls, DefaultExecutor>>,
+    pool: Pool<PostgresConnectionManager<NoTls, TaskExecutor>>,
     mut sender: mpsc::Sender<()>,
 ) -> Result<(), Error<PostgresError>> {
     let conn = pool.get().await?;
