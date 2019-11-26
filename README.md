@@ -18,7 +18,7 @@ A generic connection pool, but async/.await
 
 ```toml
 [dependencies]
-mobc = "0.2.8"
+mobc = "0.2.9"
 ```
 
 ## implementation
