@@ -307,7 +307,7 @@ where
                     initial_count += 1;
                     let mut internals = self.0.internals.lock().await;
                     if initial_count == initial_size {
-                        println!("initial ok");
+                        debug!("initial ok");
                         internals.is_initial_done = true;
                         break
                     }
