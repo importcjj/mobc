@@ -1,6 +1,6 @@
 [package]
 name = "mobc-postgres"
-version = "0.2.9"
+version = "0.2.10"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -30,6 +30,6 @@ tokio-postgres = "=0.5.0-alpha.1"
 futures_01 = { version = "0.1", package = "futures"}
 
 [dev-dependencies]
-tokio = "0.2.0-alpha.6"
+tokio = "=0.2.0-alpha.6"
 async-std = { version = "1.0", features = ["unstable"] }
 env_logger = "0.7.1"
