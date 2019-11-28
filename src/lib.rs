@@ -473,11 +473,22 @@ where
         .get_executor()
         .clone()
         .spawn(Box::pin(async move {
-            while let Some(_) = timer::interval(reaper_rate).next().await {
+            let mut interval = timer::interval(reaper_rate);
+
+            // tokio::time::Interval may have a bug.
+            // On the first try, it seems to return immediately
+            // rather than waiting for the specified interval.
+            // Remove me!!!
+            #[cfg(feature = "tokio-runtime")]
+            #[cfg(not(feature = "async-std-runtime"))]
+            timer::timeout(reaper_rate).await;
+
+            loop {
+                interval.tick().await;
                 debug!("start reaping");
                 reap_conn(&new_shared).await;
             }
-            debug!("stop reaping connections");
+            // debug!("stop reaping connections");
         }));
 
     async fn reap_conn<M>(shared: &Weak<SharedPool<M>>)
