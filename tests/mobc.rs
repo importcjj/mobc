@@ -2,6 +2,7 @@ use mobc::futures;
 use mobc::AnyFuture;
 use mobc::ConnectionManager;
 use mobc::Error;
+use mobc::Executor;
 use mobc::Pool;
 use std::error;
 use std::fmt;
@@ -87,12 +88,12 @@ impl ConnectionManager for NthConnectFailManager {
 
 #[test]
 fn test_max_size_ok() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
+    let handler = NthConnectFailManager {
+        num: AtomicIsize::new(5),
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = NthConnectFailManager {
-            num: AtomicIsize::new(5),
-            executor: rt.executor(),
-        };
         let pool = Pool::builder().max_size(5).build(handler).await?;
 
         let mut conns = vec![];
@@ -106,11 +107,11 @@ fn test_max_size_ok() {
 
 #[test]
 fn test_acquire_release() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
+    let handler = OkManager {
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = OkManager {
-            executor: rt.executor(),
-        };
         let pool = Pool::builder().max_size(2).build(handler).await?;
 
         let conn1 = pool.get().await.ok().unwrap();
@@ -126,11 +127,11 @@ fn test_acquire_release() {
 
 #[test]
 fn test_try_get() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
+    let handler = OkManager {
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = OkManager {
-            executor: rt.executor(),
-        };
         let pool = Pool::builder().max_size(2).build(handler).await?;
 
         let conn1 = pool.try_get().await;
@@ -151,11 +152,12 @@ fn test_try_get() {
 
 #[test]
 fn test_get_timeout() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
+    let handle = rt.handle().clone();
+    let handler = OkManager {
+        executor: handle.clone(),
+    };
     rt.block_on(async {
-        let handler = OkManager {
-            executor: rt.executor(),
-        };
         let pool = Pool::builder()
             .max_size(1)
             .connection_timeout(Duration::from_millis(500))
@@ -166,15 +168,16 @@ fn test_get_timeout() {
         let succeeds_immediately = pool.get_timeout(timeout).await;
         assert!(succeeds_immediately.is_ok());
 
-        rt.spawn(async move {
+        handle.spawn(async move {
             delay_for(Duration::from_millis(50)).await;
+            println!("put back");
             drop(succeeds_immediately);
         });
 
         let succeeds_delayed = pool.get_timeout(timeout).await;
         assert!(succeeds_delayed.is_ok());
 
-        rt.spawn(async move {
+        handle.spawn(async move {
             delay_for(Duration::from_millis(150)).await;
             drop(succeeds_delayed);
         });
@@ -199,7 +202,7 @@ fn test_is_send_sync() {
 fn test_drop_on_broken() {
     static DROPPED: AtomicBool = AtomicBool::new(false);
     DROPPED.store(false, Ordering::SeqCst);
-    let rt: Runtime = Runtime::new().unwrap();
+    let mut rt: Runtime = Runtime::new().unwrap();
 
     struct Connection;
 
@@ -234,11 +237,10 @@ fn test_drop_on_broken() {
             true
         }
     }
-
+    let handler = Hanlder {
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = Hanlder {
-            executor: rt.executor(),
-        };
         let pool = Pool::new(handler).await?;
 
         drop(pool.get().await.ok().unwrap());
@@ -251,12 +253,12 @@ fn test_drop_on_broken() {
 
 #[test]
 fn test_initialization_failure() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
+    let handler = NthConnectFailManager {
+        num: AtomicIsize::new(0),
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = NthConnectFailManager {
-            num: AtomicIsize::new(0),
-            executor: rt.executor(),
-        };
         let err = Pool::builder()
             .connection_timeout(Duration::from_secs(1))
             .build(handler)
@@ -276,12 +278,12 @@ fn test_initialization_failure() {
 
 #[test]
 fn test_lazy_initialization_failure() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
+    let handler = NthConnectFailManager {
+        num: AtomicIsize::new(0),
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = NthConnectFailManager {
-            num: AtomicIsize::new(0),
-            executor: rt.executor(),
-        };
         let pool = Pool::builder()
             .connection_timeout(Duration::from_secs(1))
             .build_unchecked(handler)
@@ -300,11 +302,11 @@ fn test_lazy_initialization_failure() {
 
 #[test]
 fn test_get_global_timeout() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
+    let handler = OkManager {
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = OkManager {
-            executor: rt.executor(),
-        };
         let pool = Pool::builder()
             .max_size(1)
             .connection_timeout(Duration::from_secs(1))
@@ -324,7 +326,7 @@ fn test_get_global_timeout() {
 #[test]
 fn test_idle_timeout() {
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
-    let rt: Runtime = Runtime::new().unwrap();
+    let mut rt: Runtime = Runtime::new().unwrap();
 
     struct Connection;
 
@@ -364,12 +366,11 @@ fn test_idle_timeout() {
             false
         }
     }
-
+    let handler = Hanlder {
+        num: AtomicIsize::new(5),
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = Hanlder {
-            num: AtomicIsize::new(5),
-            executor: rt.executor(),
-        };
         let pool = Pool::builder()
             .max_size(5)
             .idle_timeout(Some(Duration::from_secs(1)))
@@ -390,7 +391,7 @@ fn test_idle_timeout() {
 #[test]
 fn test_idle_timeout_partial_use() {
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
-    let rt: Runtime = Runtime::new().unwrap();
+    let mut rt: Runtime = Runtime::new().unwrap();
 
     struct Connection;
 
@@ -430,12 +431,11 @@ fn test_idle_timeout_partial_use() {
             false
         }
     }
-
+    let handler = Hanlder {
+        num: AtomicIsize::new(5),
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = Hanlder {
-            num: AtomicIsize::new(5),
-            executor: rt.executor(),
-        };
         let pool = Pool::builder()
             .max_size(5)
             .idle_timeout(Some(Duration::from_secs(1)))
@@ -460,7 +460,7 @@ fn test_idle_timeout_partial_use() {
 #[test]
 fn test_max_lifetime() {
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
-    let rt: Runtime = Runtime::new().unwrap();
+    let mut rt: Runtime = Runtime::new().unwrap();
 
     struct Connection;
 
@@ -500,12 +500,11 @@ fn test_max_lifetime() {
             false
         }
     }
-
+    let handler = Hanlder {
+        num: AtomicIsize::new(5),
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = Hanlder {
-            num: AtomicIsize::new(5),
-            executor: rt.executor(),
-        };
         let pool = Pool::builder()
             .max_size(5)
             .max_lifetime(Some(Duration::from_secs(1)))
@@ -527,7 +526,7 @@ fn test_max_lifetime() {
 
 #[test]
 fn test_min_idle() {
-    let rt: Runtime = Runtime::new().unwrap();
+    let mut rt: Runtime = Runtime::new().unwrap();
 
     struct Connection;
 
@@ -557,10 +556,11 @@ fn test_min_idle() {
         }
     }
 
+    let handler = Hanlder {
+        executor: rt.handle().clone(),
+    };
+
     rt.block_on(async {
-        let handler = Hanlder {
-            executor: rt.executor(),
-        };
         let pool = Pool::builder()
             .max_size(5)
             .min_idle(Some(2))
@@ -592,7 +592,7 @@ fn test_min_idle() {
 #[test]
 fn test_conns_drop_on_pool_drop() {
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
-    let rt: Runtime = Runtime::new().unwrap();
+    let mut rt: Runtime = Runtime::new().unwrap();
 
     struct Connection;
 
@@ -627,10 +627,10 @@ fn test_conns_drop_on_pool_drop() {
             false
         }
     }
+    let handler = Hanlder {
+        executor: rt.handle().clone(),
+    };
     rt.block_on(async {
-        let handler = Hanlder {
-            executor: rt.executor(),
-        };
         let pool = Pool::builder()
             .max_lifetime(Some(Duration::from_secs(10)))
             .max_size(10)
