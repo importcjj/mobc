@@ -17,6 +17,7 @@ async fn single_request(
     mut sender: mpsc::Sender<()>,
 ) -> Result<(), Error<RedisError>> {
     let mut conn = pool.get().await?;
+    let mark = Instant::now();
     let raw_redis_conn = conn.take_raw_conn();
 
     let (raw_redis_conn, pong) = redis::cmd("PING")
@@ -25,6 +26,8 @@ async fn single_request(
         .await?;
 
     conn.set_raw_conn(raw_redis_conn);
+
+    println!("ping costs {:?}", mark.elapsed());
 
     assert_eq!("PONG", pong);
     sender.send(()).await.unwrap();

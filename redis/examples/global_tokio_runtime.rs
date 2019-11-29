@@ -32,7 +32,9 @@ async fn single_request(
 async fn do_redis(sender: mpsc::Sender<()>) -> Result<(), Error<RedisError>> {
     let client = redis::Client::open("redis://127.0.0.1").unwrap();
     let manager = RedisConnectionManager::new(client);
+    let mark = Instant::now();
     let pool = Pool::builder().max_size(40).build(manager).await?;
+    println!("init pool costs {:?}", mark.elapsed());
 
     for _ in 0..MAX {
         let pool = pool.clone();
@@ -57,5 +59,5 @@ async fn main() {
         }
     }
 
-    println!("cost {:?}", mark.elapsed());
+    println!("costs {:?}", mark.elapsed());
 }
