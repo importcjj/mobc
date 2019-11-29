@@ -12,7 +12,7 @@ keywords = ["redis", "pool", "database", "async", "await"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 default = ["tokio-runtime"]
-tokio-runtime = ["mobc/tokio-runtime"]
+tokio-runtime = ["mobc/tokio-runtime", "tokio/rt-threaded"]
 async-std-runtime = ["mobc/async-std-runtime"]
 
 [dependencies]
