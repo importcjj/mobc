@@ -1,6 +1,6 @@
 [package]
 name = "mobc-postgres"
-version = "0.2.10"
+version = "0.3.0"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -25,11 +25,11 @@ with-uuid-0_7 = ["tokio-postgres/with-uuid-0_7"]
 # with-uuid-0_8 = ["tokio-postgres/with-uuid-0_8"]
 
 [dependencies]
-mobc = { version = "0.2", path = ".." }
+mobc = { version = "0.3", path = ".." }
 tokio-postgres = "=0.5.0-alpha.2"
 futures_01 = { version = "0.1", package = "futures"}
 
 [dev-dependencies]
-tokio = "0.2"
+tokio = { version = "0.2", features = ["macros"] }
 async-std = { version = "1.0", features = ["unstable"] }
 env_logger = "0.7.1"
