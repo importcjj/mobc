@@ -27,8 +27,6 @@ async fn single_request(
 
     conn.set_raw_conn(raw_redis_conn);
 
-    println!("ping costs {:?}", mark.elapsed());
-
     assert_eq!("PONG", pong);
     sender.send(()).await.unwrap();
     Ok(())
