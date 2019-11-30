@@ -25,7 +25,7 @@ async fn simple_query(
 }
 
 async fn do_postgres(sender: mpsc::Sender<()>) -> Result<(), Error<PostgresError>> {
-    let config = Config::from_str("postgres://jiaju:jiaju1@localhost:5432")?;
+    let config = Config::from_str("postgres://jiaju:jiaju@localhost:5432")?;
     let manager = PostgresConnectionManager::new(config, NoTls);
     let pool = Pool::new(manager).await?;
 

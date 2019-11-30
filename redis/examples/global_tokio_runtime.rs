@@ -47,17 +47,20 @@ async fn do_redis(sender: mpsc::Sender<()>) -> Result<(), Error<RedisError>> {
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let mark = Instant::now();
-    let (tx, mut rx) = mpsc::channel::<()>(MAX);
-    do_redis(tx).await.unwrap();
+    tokio::spawn(async {
+        let mark = Instant::now();
+        let (tx, mut rx) = mpsc::channel::<()>(MAX);
+        do_redis(tx).await.unwrap();
 
-    let mut num: usize = 0;
-    while let Some(_) = rx.next().await {
-        num += 1;
-        if num == MAX {
-            break;
+        let mut num: usize = 0;
+        while let Some(_) = rx.next().await {
+            num += 1;
+            if num == MAX {
+                break;
+            }
         }
-    }
 
-    println!("costs {:?}", mark.elapsed());
+        println!("costs {:?}", mark.elapsed());
+    })
+    .await;
 }

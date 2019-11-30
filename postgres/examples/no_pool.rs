@@ -20,7 +20,7 @@ async fn main() {
     let config = Config::from_str("postgres://jiaju:jiaju@localhost:5432").unwrap();
     for i in 0..MAX {
         let config = config.clone();
-        let _ = single_request(config).await;
+        single_request(config).await.unwrap();
     }
 
     println!("cost {:?}", mark.elapsed());

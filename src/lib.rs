@@ -251,14 +251,18 @@ where
     pub async fn get_timeout(&self, dur: Duration) -> Result<PooledConnection<M>, Error<M::Error>> {
         let timeout = timer::timeout(dur);
 
-        debug!("try to lock the conns");
-        let mut conns = self.0.conns.lock().await;
+        
+        let lock_and_get = async {
+            debug!("try to lock the conns");
+            let mut conns = self.0.conns.lock().await;
+            conns.next().await
+        };
+
         debug!("waiting for get timeout");
         futures::select! {
             () = timeout.fuse() => Err(Error::Timeout),
-            r = conns.next() => match r {
+            r = lock_and_get.fuse() => match r {
                 Some(conn) => {
-                    drop(conns);
                     debug!("get conn");
                     let mut internals = self.0.internals.lock().await;
                     internals.idle_conns -= 1;
@@ -329,7 +333,6 @@ where
         let _ = self.0.config.executor.clone().spawn(Box::pin(async move {
             // This is specified to be fast, but call it before locking anyways
             let broken = conn.raw.is_none() || self.0.manager.has_broken(&mut conn.raw);
-
             let mut internals = self.0.internals.lock().await;
             if broken {
                 drop_conns(&self.0, internals, vec![conn]);
@@ -375,6 +378,14 @@ fn establish_idle_connections<M>(
 ) where
     M: ConnectionManager,
 {
+    debug!(
+        "num_conns {}, pending_conns {}, max_size {}",
+        internals.num_conns, internals.pending_conns, shared.config.max_size
+    );
+    if internals.num_conns + internals.pending_conns >= shared.config.max_size {
+        return;
+    }
+
     let min = shared.config.min_idle.unwrap_or(shared.config.max_size);
     let idle = internals.idle_conns as u32;
     debug!(
@@ -390,13 +401,8 @@ fn add_connection<M>(shared: &Arc<SharedPool<M>>, internals: &mut PoolInternals<
 where
     M: ConnectionManager,
 {
-    debug!(
-        "num_conns {}, pending_conns {}, max_size {}",
-        internals.num_conns, internals.pending_conns, shared.config.max_size
-    );
-    if internals.num_conns + internals.pending_conns >= shared.config.max_size {
-        return;
-    }
+
+
     debug!("add connection");
 
     internals.pending_conns += 1;
@@ -473,11 +479,22 @@ where
         .get_executor()
         .clone()
         .spawn(Box::pin(async move {
-            while let Some(_) = timer::interval(reaper_rate).next().await {
+            let mut interval = timer::interval(reaper_rate);
+
+            // tokio::time::Interval may have a bug.
+            // On the first try, it seems to return immediately
+            // rather than waiting for the specified interval.
+            // Remove me!!!
+            #[cfg(feature = "tokio-runtime")]
+            #[cfg(not(feature = "async-std-runtime"))]
+            timer::timeout(reaper_rate).await;
+
+            loop {
+                interval.tick().await;
                 debug!("start reaping");
                 reap_conn(&new_shared).await;
             }
-            debug!("stop reaping connections");
+            // debug!("stop reaping connections");
         }));
 
     async fn reap_conn<M>(shared: &Weak<SharedPool<M>>)

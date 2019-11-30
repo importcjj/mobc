@@ -65,6 +65,6 @@ async fn try_main(executor: TaskExecutor) -> Result<(), Error<PostgresError>> {
 
 fn main() {
     env_logger::init();
-    let rt = Runtime::new().unwrap();
-    rt.block_on(try_main(rt.executor())).unwrap();
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(try_main(rt.handle().clone())).unwrap();
 }

@@ -17,6 +17,7 @@ async fn single_request(
     mut sender: mpsc::Sender<()>,
 ) -> Result<(), Error<RedisError>> {
     let mut conn = pool.get().await?;
+    let mark = Instant::now();
     let raw_redis_conn = conn.take_raw_conn();
 
     let (raw_redis_conn, pong) = redis::cmd("PING")
@@ -67,6 +68,6 @@ async fn try_main(executor: TaskExecutor) -> Result<(), Error<RedisError>> {
 
 fn main() {
     env_logger::init();
-    let rt = Runtime::new().unwrap();
-    rt.block_on(try_main(rt.executor())).unwrap();
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(try_main(rt.handle().clone())).unwrap();
 }
