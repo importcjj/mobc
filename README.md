@@ -11,26 +11,45 @@ A generic connection pool, but async/.await
 ## Features
 
 * Support async/.await syntax.
-* Mobc can be used in tokio and async-std runtimes.
+* Support tokio 0.2 and async-std 1.0 runtimes.
 * Simple and fast customization
+
+## adapter
+
+* [mobc-redis = "0.3.0"](https://crates.io/crates/mobc-redis)
+
+* [mobc-postgres = "0.3.0"](https://crates.io/crates/mobc-postgres)
 
 ## Usage
 
+If you are using tokio 0.2-alpha.6, use mobc 0.2.10.
+
 ```toml
 [dependencies]
-mobc = "0.2.10"
+mobc = "0.3.0"
 ```
 
-## implementation
+#### foo demo
+```rust
+use tokio;
 
-* [mobc-redis = "0.2.7"](https://crates.io/crates/mobc-redis)
+#[tokio::main]
+async fn main() {
+    let manager = mobc_foodb::FooConnectionManager::new("localhost:1234");
+    let pool = mobc::Pool::builder()
+        .max_size(15)
+        .build(manager)
+        .await
+        .unwrap();
 
-* [mobc-postgres = "0.2.10"](https://crates.io/crates/mobc-postgres)
+    for _ in 0..20 {
+        let pool = pool.clone();
+        tokio::spawn(async {
+            let conn = pool.get().await.unwrap();
+            // use the connection
+            // it will be returned to the pool when it falls out of scope.
+        });
+    }
+}
 
-
-
-
-
-## benchmark
-
-The benchmark is not ready
+```
