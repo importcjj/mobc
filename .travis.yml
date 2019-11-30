@@ -8,7 +8,6 @@ matrix:
     - rust: stable
   fast_finish: true
 
-cache: cargo
 script:
   - RUST_BACKTRACE=1 cargo build --verbose --all
   # - RUST_BACKTRACE=1 cargo test --verbose --all --features async-std-runtime
