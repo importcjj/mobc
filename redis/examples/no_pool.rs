@@ -19,11 +19,11 @@ async fn single_request(client: Client) -> Result<(), RedisError> {
 async fn main() {
     let mark = Instant::now();
 
-    let client = redis::Client::open("redis://127.0.0.1").unwrap();
+    let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
 
     for _ in 0..MAX {
         let client = client.clone();
-        let _ = single_request(client).await;
+        single_request(client).await.unwrap();
     }
 
     println!("cost {:?}", mark.elapsed());
