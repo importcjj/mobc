@@ -14,7 +14,7 @@ A generic connection pool, but async/.await
 * Support tokio 0.2 and async-std 1.0 runtimes.
 * Simple and fast customization
 
-## adapter
+## Adapter
 
 * [mobc-redis = "0.3.0"](https://crates.io/crates/mobc-redis)
 
