@@ -41,18 +41,20 @@ async fn do_postgres(sender: mpsc::Sender<()>) -> Result<(), Error<PostgresError
 #[tokio::main]
 async fn main() {
     // env_logger::init();
-    let mark = Instant::now();
-    let (tx, mut rx) = mpsc::channel::<()>(MAX);
+    tokio::spawn(async {
+        let mark = Instant::now();
+        let (tx, mut rx) = mpsc::channel::<()>(MAX);
 
-    do_postgres(tx).await.unwrap();
+        do_postgres(tx).await.unwrap();
 
-    let mut num: usize = 0;
-    while let Some(_) = rx.next().await {
-        num += 1;
-        if num == MAX {
-            break;
+        let mut num: usize = 0;
+        while let Some(_) = rx.next().await {
+            num += 1;
+            if num == MAX {
+                break;
+            }
         }
-    }
 
-    println!("cost {:?}", mark.elapsed());
+        println!("cost {:?}", mark.elapsed());
+    }).await.unwrap();
 }
