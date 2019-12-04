@@ -6,7 +6,7 @@
 //! database, handing them out for repeated use.
 //!
 //! mobc is agnostic to the connection type it is managing. Implementors of the
-//! `ManageConnection` trait provide the database-specific logic to create and
+//! `ConnectionManager` trait provide the database-specific logic to create and
 //! check the health of connections.
 //!
 //! # Example
