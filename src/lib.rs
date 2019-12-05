@@ -45,7 +45,7 @@ pub mod executor;
 pub mod runtime;
 mod timer;
 
-use config::Builder;
+pub use config::Builder;
 use config::Config;
 pub use executor::Executor;
 pub use futures;
