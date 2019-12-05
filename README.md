@@ -26,7 +26,7 @@ If you are using tokio 0.2-alpha.6, use mobc 0.2.10.
 
 ```toml
 [dependencies]
-mobc = "0.3.0"
+mobc = "0.3"
 ```
 
 #### foo demo
