@@ -16,9 +16,9 @@ A generic connection pool, but async/.await
 
 ## Adapter
 
-* [mobc-redis = "0.3.0"](https://crates.io/crates/mobc-redis)
+* [mobc-redis = "0.3.1"](https://crates.io/crates/mobc-redis)
 
-* [mobc-postgres = "0.3.0"](https://crates.io/crates/mobc-postgres)
+* [mobc-postgres = "0.3.1"](https://crates.io/crates/mobc-postgres)
 
 ## Usage
 
