@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
