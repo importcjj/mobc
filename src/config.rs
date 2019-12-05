@@ -4,7 +4,7 @@ use crate::Pool;
 use std::marker::PhantomData;
 use std::time::Duration;
 
-pub struct Config<T> {
+pub(crate) struct Config<T> {
     pub max_size: u32,
     pub min_idle: Option<u32>,
     pub max_concurrency: u32,
