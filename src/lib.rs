@@ -491,8 +491,11 @@ where
 
         let mut to_drop = vec![];
 
-        let mut internals = shared.internals.lock().await;
+        // The difficult lock must be acquired first, 
+        // otherwise a timeout error will occur
         let mut conns = shared.conns.lock().await;
+        let mut internals = shared.internals.lock().await;
+
         let mut checked_num: u32 = 0;
 
         let now = Instant::now();
