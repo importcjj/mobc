@@ -22,7 +22,7 @@ A generic connection pool, but async/.await
 
 ## Usage
 
-If you are using tokio 0.2-alpha.6, use mobc 0.2.10.
+If you are using tokio 0.2-alpha.6, use mobc 0.2.11.
 
 ```toml
 [dependencies]
