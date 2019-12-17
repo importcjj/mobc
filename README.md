@@ -29,7 +29,7 @@ A generic connection pool, but async/.await
 mobc = "0.3"
 ```
 
-#### Foo Demo
+## Example
 
 ```rust
 use mobc::{ConnectionManager, runtime::DefaultExecutor, Pool, AnyFuture};
