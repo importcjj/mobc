@@ -105,6 +105,18 @@ where
     }
 }
 
+impl<E> error::Error for Error<E>
+where
+    E: error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match *self{
+            Error::Inner(ref err)=> Some(err),
+            Error::Timeout=>None
+        }
+    }
+}
+
 /// Future alias
 pub type AnyFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
 
