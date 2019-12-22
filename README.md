@@ -40,7 +40,7 @@ impl Manager for FooManager {
         Box::pin(futures::future::ok(FooConnection))
     }
 
-    fn is_valid(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
+    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
         Box::pin(futures::future::ok(conn))
     }
 }
