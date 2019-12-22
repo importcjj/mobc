@@ -1,42 +1,18 @@
 [package]
 name = "mobc"
-version = "0.3.2"
+version = "0.4.0-alpha.0"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
-readme = "README.md"
-license = "MIT/Apache-2.0"
-description = "A generic connection pool, but async/await"
-repository = "https://github.com/importcjj/mobc"
-keywords = ["database", "pool", "async", "await"]
-documentation = "https://docs.rs/mobc/latest/mobc/"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = ["tokio-runtime"]
-tokio-runtime = ["tokio"]
-async-std-runtime = ["async-std"]
-
 [dependencies]
+futures = "0.3"
+tokio = { version = "0.2", features=["rt-core", "time"] }
 log = "0.4"
-tokio = { version = "0.2", features = ["time", "rt-core"], optional = true }
-async-std = { version = "1.0", features = ["unstable"], optional = true }
-
-[dependencies.futures]
-version = "0.3"
-features = ["compat"]
 
 [dev-dependencies]
-criterion = "0.3.0"
-tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
-async-std = { version = "1.0", features = ["unstable"] }
-env_logger = "0.7.1"
-
-[workspace]
-members = [
-    "redis",
-    "postgres"
-]
-
-# [[bench]]
-# name = "redis"
-# harness = false
+tokio = { version = "0.2", features = ["macros",  "rt-threaded"] }
+tokio-postgres = "=0.5.0-alpha.2"
+env_logger = "0.7"
+deadpool-postgres = "0.4"
