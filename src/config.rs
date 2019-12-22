@@ -77,7 +77,14 @@ where
     /// connections at all times, while respecting the value of `max_size`.
     ///
     /// Defaults to `None` (equivalent to the value of `max_size`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `min_idle` is 0.
     pub fn min_idle(mut self, min_idle: Option<u32>) -> Self {
+        if let Some(min_idle) = min_idle {
+            assert!(min_idle > 0, "min_idle must be positive");
+        }
         self.min_idle = min_idle;
         self
     }
