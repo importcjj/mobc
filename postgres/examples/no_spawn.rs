@@ -1,7 +1,7 @@
 use mobc::Pool;
-use std::str::FromStr;
 use mobc_postgres::tokio_postgres;
 use mobc_postgres::PostgresConnectionManager;
+use std::str::FromStr;
 use std::time::Instant;
 use tokio_postgres::Config;
 use tokio_postgres::NoTls;
@@ -11,7 +11,6 @@ async fn main() {
     let config = Config::from_str("postgres://jiaju:jiaju@localhost:5432").unwrap();
     let manager = PostgresConnectionManager::new(config, NoTls);
     let pool = Pool::new(manager).await.unwrap();
-
 
     for i in 0..5000usize {
         let mut client = pool.get().await.unwrap();

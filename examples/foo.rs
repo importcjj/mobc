@@ -1,4 +1,4 @@
-use mobc::{ConnectionManager, runtime::DefaultExecutor, Pool, AnyFuture};
+use mobc::{runtime::DefaultExecutor, AnyFuture, ConnectionManager, Pool};
 
 struct FooManager;
 
@@ -56,5 +56,4 @@ async fn main() {
     for h in handles {
         h.await;
     }
-
 }

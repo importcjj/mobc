@@ -170,7 +170,6 @@ fn test_get_timeout() {
 
         handle.spawn(async move {
             delay_for(Duration::from_millis(50)).await;
-            println!("put back");
             drop(succeeds_immediately);
         });
 
@@ -246,6 +245,60 @@ fn test_drop_on_broken() {
         drop(pool.get().await.ok().unwrap());
         delay_for(Duration::from_secs(1)).await;
         assert!(DROPPED.load(Ordering::SeqCst));
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_invalid_conn() {
+    static DROPPED: AtomicBool = AtomicBool::new(false);
+    DROPPED.store(false, Ordering::SeqCst);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct Hanlder {
+        executor: TaskExecutor,
+    };
+
+    impl ConnectionManager for Hanlder {
+        type Connection = Connection;
+        type Error = TestError;
+        type Executor = TaskExecutor;
+
+        fn get_executor(&self) -> Self::Executor {
+            self.executor.clone()
+        }
+
+        fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::ok(Connection))
+        }
+
+        fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::err(TestError))
+        }
+
+        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
+            false
+        }
+    }
+    let handler = Hanlder {
+        executor: rt.handle().clone(),
+    };
+    rt.block_on(async {
+        let pool = Pool::builder().max_size(1).build(handler).await?;
+
+        drop(pool.get().await.ok().unwrap());
+        delay_for(Duration::from_secs(1)).await;
+        assert!(DROPPED.load(Ordering::SeqCst));
+        assert_eq!(1_u32, pool.state().await.connections);
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();

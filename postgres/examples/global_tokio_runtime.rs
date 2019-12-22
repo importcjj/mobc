@@ -11,15 +11,16 @@ use tokio_postgres::Config;
 use tokio_postgres::Error as PostgresError;
 use tokio_postgres::NoTls;
 
-const MAX: usize = 5000;
+const MAX: usize = 16000;
 
 async fn simple_query(
     pool: Pool<PostgresConnectionManager<NoTls, DefaultExecutor>>,
     mut sender: mpsc::Sender<()>,
 ) -> Result<(), Error<PostgresError>> {
     let conn = pool.get().await?;
-    let r = conn.execute("SELECT 1", &[]).await?;
-    assert_eq!(r, 1);
+    let rows = conn.query("SELECT 1 + 2", &[]).await.unwrap();
+    let value: i32 = rows[0].get(0);
+    assert_eq!(value, 3);
     sender.send(()).await.unwrap();
     Ok(())
 }
@@ -56,5 +57,7 @@ async fn main() {
         }
 
         println!("cost {:?}", mark.elapsed());
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
 }

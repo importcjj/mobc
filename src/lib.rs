@@ -251,7 +251,6 @@ where
     pub async fn get_timeout(&self, dur: Duration) -> Result<PooledConnection<M>, Error<M::Error>> {
         let timeout = timer::timeout(dur);
 
-        
         let lock_and_get = async {
             debug!("try to lock the conns");
             let mut conns = self.0.conns.lock().await;
@@ -332,7 +331,13 @@ where
 
         let _ = self.0.config.executor.clone().spawn(Box::pin(async move {
             // This is specified to be fast, but call it before locking anyways
-            let broken = conn.raw.is_none() || self.0.manager.has_broken(&mut conn.raw);
+            let mut broken = conn.raw.is_none() || self.0.manager.has_broken(&mut conn.raw);
+            if !broken {
+                match self.0.manager.is_valid(conn.raw.take().unwrap()).await {
+                    Ok(c) => conn.raw = Some(c),
+                    Err(_) => broken = true,
+                }
+            }
             let mut internals = self.0.internals.lock().await;
             if broken {
                 drop_conns(&self.0, internals, vec![conn]);
@@ -401,8 +406,6 @@ fn add_connection<M>(shared: &Arc<SharedPool<M>>, internals: &mut PoolInternals<
 where
     M: ConnectionManager,
 {
-
-
     debug!("add connection");
 
     internals.pending_conns += 1;
@@ -508,7 +511,7 @@ where
 
         let mut to_drop = vec![];
 
-        // The difficult lock must be acquired first, 
+        // The difficult lock must be acquired first,
         // otherwise a timeout error will occur
         let mut conns = shared.conns.lock().await;
         let mut internals = shared.internals.lock().await;
