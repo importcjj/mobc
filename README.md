@@ -2,7 +2,7 @@
 
 A generic connection pool, but async/.await
 
-[![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=master)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-latest-%23dea584)](https://crates.io/crates/mobc)
+[![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=0.4.x)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-latest-%23dea584)](https://crates.io/crates/mobc)
 
 [Documentation](https://docs.rs/mobc/latest/mobc/)
 
@@ -14,11 +14,6 @@ A generic connection pool, but async/.await
 * Support tokio 0.2 and async-std 1.0 runtimes.
 * Simple and fast customization
 
-## Adapter
-
-* [mobc-redis = "0.3.1"](https://crates.io/crates/mobc-redis)
-
-* [mobc-postgres = "0.3.1"](https://crates.io/crates/mobc-postgres)
 
 ## Usage
 
@@ -26,35 +21,27 @@ A generic connection pool, but async/.await
 
 ```toml
 [dependencies]
-mobc = "0.3"
+mobc = "=0.4.0-alpha.0"
 ```
 
 ## Example
 
 ```rust
-use mobc::{ConnectionManager, runtime::DefaultExecutor, Pool, AnyFuture};
+use mobc::{Manager, Config, Pool, ResultFuture};
 
 struct FooManager;
 
-impl ConnectionManager for FooManager {
-    type Connection = FooConnection;
+impl Manager for FooManager {
+    type Resource = FooConnection;
     type Error = std::io::Error;
-    type Executor = DefaultExecutor;
 
-    fn get_executor(&self) -> Self::Executor {
-        DefaultExecutor::current()
-    }
 
-    fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+    fn create(&self) -> ResultFuture<Self::Connection, Self::Error> {
         Box::pin(futures::future::ok(FooConnection))
     }
 
-    fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+    fn is_valid(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
         Box::pin(futures::future::ok(conn))
-    }
-
-    fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
-        false
     }
 }
 
@@ -68,11 +55,7 @@ impl FooConnection {
 
 #[tokio::main]
 async fn main() {
-    let pool = mobc::Pool::builder()
-        .max_size(15)
-        .build(FooManager)
-        .await
-        .unwrap();
+    let pool = Pool::new(FooManager, Config::default());
 
     let mut handles = vec![];
 
