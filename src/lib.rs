@@ -68,6 +68,8 @@
 #![deny(missing_docs)]
 #![recursion_limit = "256"]
 mod config;
+#[cfg(feature = "unstable")]
+mod runtime;
 mod spawn;
 mod time;
 
@@ -80,6 +82,8 @@ use futures::select;
 use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
+#[cfg(feature = "unstable")]
+pub use runtime::{DefaultExecutor, Runtime, TaskExecutor};
 use spawn::spawn;
 use std::collections::HashMap;
 use std::error;
@@ -190,7 +194,7 @@ struct Conn<C, E> {
 }
 
 impl<C, E> Conn<C, E> {
-    fn close(&self, mut internals: MutexGuard<'_, PoolInternals<C, E>>) {
+    fn close(&self, mut internals: &mut MutexGuard<'_, PoolInternals<C, E>>) {
         internals.num_open -= 1;
     }
 
@@ -208,6 +212,7 @@ struct PoolInternals<C, E> {
     conn_requests: HashMap<u64, ReqSender<Result<Conn<C, E>, E>>>,
     num_open: u64,
     max_lifetime_closed: u64,
+    max_idle_closed: u64,
     next_request_id: u64,
     wait_count: u64,
     wait_duration: Duration,
@@ -221,6 +226,30 @@ impl<M: Manager> Clone for Pool<M> {
     fn clone(&self) -> Self {
         Pool(self.0.clone())
     }
+}
+
+/// Information about the state of a `Pool`.
+pub struct State {
+    /// Maximum number of open connections to the database
+    pub max_open: u64,
+
+    // Pool Status
+    /// The number of established connections both in use and idle.
+    pub connections: u64,
+    /// The number of connections currently in use.
+    pub in_use: u64,
+    /// The number of idle connections.
+    pub idle: u64,
+
+    // Counters
+    /// The total number of connections waited for.
+    pub wait_count: u64,
+    /// The total time blocked waiting for a new connection.
+    pub wait_duration: Duration,
+    /// The total number of connections closed due to `max_idle`.
+    pub max_idle_closed: u64,
+    /// The total number of connections closed due to `max_lifetime`.
+    pub max_lifetime_closed: u64,
 }
 
 #[derive(PartialEq)]
@@ -260,6 +289,7 @@ impl<M: Manager> Pool<M> {
             max_lifetime_closed: 0,
             next_request_id: 0,
             wait_count: 0,
+            max_idle_closed: 0,
             opener_ch: opener_ch_sender,
             wait_duration: Duration::from_secs(0),
         });
@@ -334,7 +364,7 @@ impl<M: Manager> Pool<M> {
             let c = internals.free_conns.swap_remove(0);
 
             if c.expired(config.max_lifetime) {
-                c.close(internals);
+                c.close(&mut internals);
                 return Err(Error::BadConn);
             }
 
@@ -370,7 +400,7 @@ impl<M: Manager> Pool<M> {
                             Ok(c) => {
                                 if c.expired(config.max_lifetime) {
                                     let mut internals = self.0.internals.lock().await;
-                                    c.close(internals);
+                                    c.close(&mut internals);
                                     return Err(Error::BadConn);
                                 }
                                 let pooled = Connection {
@@ -409,6 +439,23 @@ impl<M: Manager> Pool<M> {
                 maybe_open_new_connection(&self.0, internals).await;
                 return Err(Error::Inner(e));
             }
+        }
+    }
+
+    /// Returns information about the current state of the pool.
+    pub async fn state(&self) -> State {
+        let internals = self.0.internals.lock().await;
+        State {
+            max_open: self.0.config.max_open,
+
+            connections: internals.num_open,
+            in_use: internals.num_open - internals.free_conns.len() as u64,
+            idle: internals.free_conns.len() as u64,
+
+            wait_count: internals.wait_count,
+            wait_duration: internals.wait_duration,
+            max_idle_closed: internals.max_idle_closed,
+            max_lifetime_closed: internals.max_lifetime_closed,
         }
     }
 }
@@ -496,7 +543,8 @@ fn put_idle_conn<M: Manager>(
     if config.max_idle > internals.free_conns.len() as u64 {
         internals.free_conns.push(conn)
     } else {
-        conn.close(internals)
+        internals.max_idle_closed += 1;
+        conn.close(&mut internals)
     }
 }
 
@@ -563,8 +611,9 @@ async fn clean_connection<M: Manager>(shared: &Arc<SharedPool<M>>, max_lifetime:
     }
 
     internals.max_lifetime_closed += closing.len() as u64;
-    internals.num_open -= closing.len() as u64;
-    drop(closing);
+    for conn in closing {
+        conn.close(&mut internals);
+    }
 }
 
 /// A smart pointer wrapping a connection.
