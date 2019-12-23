@@ -11,7 +11,7 @@ A generic connection pool, but async/.await
 ## Features
 
 * Support async/.await syntax.
-* Support tokio 0.2 and async-std 1.0 runtimes.
+* Support both `tokio` and `async-std` runtimes.
 * Simple and fast customization
 
 
@@ -26,53 +26,56 @@ mobc = "=0.4.0-alpha.0"
 
 ## Example
 
+Using an imaginary "foodb" database.
+
 ```rust
-use mobc::{Manager, Config, Pool, ResultFuture};
+use mobc::{Manager, Pool, ResultFuture};
 
-struct FooManager;
-
-impl Manager for FooManager {
-    type Resource = FooConnection;
-    type Error = std::io::Error;
-
-
-    fn create(&self) -> ResultFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(FooConnection))
-    }
-
-    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(conn))
-    }
-}
+#[derive(Debug)]
+struct FooError;
 
 struct FooConnection;
 
 impl FooConnection {
-    async fn query(&self) -> String {
-        "nori".to_string()
-    }
+   async fn query(&self) -> String {
+       "nori".to_string()
+   }
+}
+
+struct FooManager;
+
+impl Manager for FooManager {
+   type Connection = FooConnection;
+   type Error = FooError;
+
+   fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+       Box::pin(futures::future::ok(FooConnection))
+   }
+
+   fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
+       Box::pin(futures::future::ok(conn))
+   }
 }
 
 #[tokio::main]
 async fn main() {
-    let pool = Pool::new(FooManager, Config::default());
+   let pool = Pool::builder().max_open(15).build(FooManager);
+   let num: usize = 10000;
+   let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
-    let mut handles = vec![];
+   for _ in 0..num {
+       let pool = pool.clone();
+       let mut tx = tx.clone();
+       tokio::spawn(async move {
+           let conn = pool.get().await.unwrap();
+           let name = conn.query().await;
+           assert_eq!(name, "nori".to_string());
+           tx.send(()).await.unwrap();
+       });
+   }
 
-    for _ in 0..200 {
-        let pool = pool.clone();
-        let h = tokio::spawn(async move {
-            let conn = pool.get().await.unwrap();
-            let name = conn.query().await;
-            assert_eq!(name, "nori".to_string());
-        });
-
-        handles.push(h)
-    }
-
-    for h in handles {
-        h.await;
-    }
-
+   for _ in 0..num {
+       rx.recv().await.unwrap();
+   }
 }
 ```

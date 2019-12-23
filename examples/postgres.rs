@@ -29,20 +29,20 @@ where
     <Tls as MakeTlsConnect<Socket>>::TlsConnect: Send,
     <<Tls as MakeTlsConnect<Socket>>::TlsConnect as TlsConnect<Socket>>::Future: Send,
 {
-    type Resource = Client;
+    type Connection = Client;
     type Error = Error;
 
-    fn create(&self) -> ResultFuture<Self::Resource, Self::Error> {
+    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
         let config = self.config.clone();
         let tls = self.tls.clone();
-        let connect_fut = async move {config.connect(tls).await };
+        let connect_fut = async move { config.connect(tls).await };
         Box::pin(connect_fut.map_ok(move |(client, conn)| {
-            mobc::spawn(conn);
+            tokio::spawn(conn);
             client
         }))
     }
 
-    fn check(&self, conn: Self::Resource) -> ResultFuture<Self::Resource, Self::Error> {
+    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
         let simple_query_fut = async move {
             conn.simple_query("").await?;
             Ok(conn)
@@ -56,7 +56,7 @@ async fn main() {
     env_logger::init();
     let config = tokio_postgres::Config::from_str("postgres://jiaju:jiaju@localhost:5432").unwrap();
     let manager = ConnectionManager::new(config, NoTls);
-    let client = manager.create().await.unwrap();
+    let client = manager.connect().await.unwrap();
     // without pool (just using one client of it)
     let now = Instant::now();
     {
@@ -68,7 +68,7 @@ async fn main() {
     }
     let d1 = now.elapsed();
     println!("Without spawn: {:?}", d1);
-    let pool = Pool::new(manager, mobc::Config::default());
+    let pool = Pool::new(manager);
     let now = Instant::now();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(16);
     for i in 0usize..16000usize {

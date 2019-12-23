@@ -5,14 +5,19 @@ authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["tokio"]
+tokio-02-alpha6 = ["tokio-timer", "tokio-executor"]
 
 [dependencies]
 futures = "0.3"
-tokio = { version = "0.2", features=["rt-core", "time"] }
+tokio = { version = "0.2", features=["rt-core", "time"], optional = true }
+tokio-timer = { version = "=0.3.0-alpha.6", optional = true }
+tokio-executor = { version = "=0.2.0-alpha.6", optional = true }
+async-std = { version = "1.0", features=["unstable"], optional = true }
 log = "0.4"
 
 [dev-dependencies]
-tokio = { version = "0.2", features = ["macros",  "rt-threaded"] }
+tokio = { version = "0.2", features = ["full"] }
 tokio-postgres = "=0.5.0-alpha.2"
 env_logger = "0.7"
-deadpool-postgres = "0.4"

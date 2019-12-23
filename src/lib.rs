@@ -1,6 +1,78 @@
+//! A generic connection pool with async/await support.
+//!
+//! Opening a new database connection every time one is needed is both
+//! inefficient and can lead to resource exhaustion under high traffic
+//! conditions. A connection pool maintains a set of open connections to a
+//! database, handing them out for repeated use.
+//!
+//! mobc is agnostic to the connection type it is managing. Implementors of the
+//! `ConnectionManager` trait provide the database-specific logic to create and
+//! check the health of connections.
+//!
+//! # Example
+//!
+//! Using an imaginary "foodb" database.
+//!
+//! ```rust
+//!use mobc::{Manager, Pool, ResultFuture};
+//!
+//!#[derive(Debug)]
+//!struct FooError;
+//!
+//!struct FooConnection;
+//!
+//!impl FooConnection {
+//!    async fn query(&self) -> String {
+//!        "nori".to_string()
+//!    }
+//!}
+//!
+//!struct FooManager;
+//!
+//!impl Manager for FooManager {
+//!    type Connection = FooConnection;
+//!    type Error = FooError;
+//!
+//!    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+//!        Box::pin(futures::future::ok(FooConnection))
+//!    }
+//!
+//!    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
+//!        Box::pin(futures::future::ok(conn))
+//!    }
+//!}
+//!
+//!#[tokio::main]
+//!async fn main() {
+//!    let pool = Pool::builder().max_open(15).build(FooManager);
+//!    let num: usize = 10000;
+//!    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
+//!
+//!    for _ in 0..num {
+//!        let pool = pool.clone();
+//!        let mut tx = tx.clone();
+//!        tokio::spawn(async move {
+//!            let conn = pool.get().await.unwrap();
+//!            let name = conn.query().await;
+//!            assert_eq!(name, "nori".to_string());
+//!            tx.send(()).await.unwrap();
+//!        });
+//!    }
+//!
+//!    for _ in 0..num {
+//!        rx.recv().await.unwrap();
+//!    }
+//!}
+//!
+//! ```
+#![deny(missing_docs)]
+#![recursion_limit = "256"]
+mod config;
 mod spawn;
 mod time;
 
+pub use config::Builder;
+use config::Config;
 use futures::channel::mpsc::{self, Sender};
 use futures::channel::oneshot::{self, Sender as ReqSender};
 use futures::lock::{Mutex, MutexGuard};
@@ -8,8 +80,9 @@ use futures::select;
 use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
-pub use spawn::spawn;
+use spawn::spawn;
 use std::collections::HashMap;
+use std::error;
 use std::fmt;
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
@@ -18,11 +91,6 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use time::{interval, timeout};
 
-/// This is the size of the connectionOpener request chan (DB.openerCh).
-/// This value should be larger than the maximum typical value
-/// used for db.maxOpen. If maxOpen is significantly larger than
-/// connectionRequestQueueSize then it is possible for ALL calls into the *DB
-/// to block until the connectionOpener can satisfy the backlog of requests.
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
 
 /// The error type returned by methods in this crate.
@@ -67,53 +135,70 @@ where
     }
 }
 
-pub type ResultFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
-
-pub trait Manager: Send + Sync + 'static {
-    type Resource: Send + 'static;
-    type Error: Send + Sync + 'static;
-
-    fn create(&self) -> ResultFuture<Self::Resource, Self::Error>;
-    fn check(&self, conn: Self::Resource) -> ResultFuture<Self::Resource, Self::Error>;
-}
-
-pub struct Config {
-    max_open: Option<u64>,
-    max_idle: Option<u64>,
-    max_lifetime: Option<Duration>,
-    clean_rate: Duration,
-    max_bad_conn_retries: u32,
-    get_timeout: Duration,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            max_open: Some(16),
-            max_idle: Some(16),
-            max_lifetime: Some(Duration::from_secs(30 * 60)),
-            clean_rate: Duration::from_secs(30),
-            max_bad_conn_retries: 2,
-            get_timeout: Duration::from_secs(30),
+impl<E> error::Error for Error<E>
+where
+    E: error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match *self {
+            Error::Inner(ref err) => Some(err),
+            Error::Timeout => None,
+            Error::BadConn => None,
         }
     }
+}
+
+/// Result Future `Pin<Box<dyn Future<Output = Result<T, E>> + Send>>`
+pub type ResultFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+
+/// A trait which provides connection-specific functionality.
+pub trait Manager: Send + Sync + 'static {
+    /// The connection type this manager deals with.
+    type Connection: Send + 'static;
+    /// The error type returned by `Connection`s.
+    type Error: Send + Sync + 'static;
+
+    /// Spawns a new asynchronous task.
+    fn spawn_task<T>(&self, task: T)
+    where
+        T: Future + Send + 'static,
+        T::Output: Send + 'static,
+    {
+        spawn(task);
+    }
+
+    /// Attempts to create a new connection.
+    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error>;
+    /// Determines if the connection is still connected to the database.
+    ///
+    /// A standard implementation would check if a simple query like `SELECT 1`
+    /// succeeds.
+    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error>;
 }
 
 struct SharedPool<M: Manager> {
     config: Config,
     manager: M,
-    internals: Mutex<PoolInternals<M::Resource, M::Error>>,
+    internals: Mutex<PoolInternals<M::Connection, M::Error>>,
 }
 
 struct Conn<C, E> {
     raw: Option<C>,
+    #[allow(dead_code)]
     last_err: Mutex<Option<E>>,
     created_at: Instant,
 }
 
 impl<C, E> Conn<C, E> {
-    fn expired(&self, timeout: Duration) -> bool {
-        self.created_at < Instant::now() - timeout
+    fn close(&self, mut internals: MutexGuard<'_, PoolInternals<C, E>>) {
+        internals.num_open -= 1;
+    }
+
+    fn expired(&self, timeout: Option<Duration>) -> bool {
+        match timeout {
+            Some(dur) => self.created_at < Instant::now() - dur,
+            None => false,
+        }
     }
 }
 
@@ -128,8 +213,10 @@ struct PoolInternals<C, E> {
     wait_duration: Duration,
 }
 
+/// A generic connection pool.
 pub struct Pool<M: Manager>(Arc<SharedPool<M>>);
 
+/// Returns a new `Pool` referencing the same state as `self`.
 impl<M: Manager> Clone for Pool<M> {
     fn clone(&self) -> Self {
         Pool(self.0.clone())
@@ -149,10 +236,22 @@ impl<M: Manager> Drop for Pool<M> {
 }
 
 impl<M: Manager> Pool<M> {
-    pub fn new(manager: M, config: Config) -> Self {
-        let max_open = config
-            .max_open
-            .unwrap_or(CONNECTION_REQUEST_QUEUE_SIZE as u64) as usize;
+    /// Creates a new connection pool with a default configuration.
+    pub fn new(manager: M) -> Pool<M> {
+        Pool::builder().build(manager)
+    }
+
+    /// Returns a builder type to configure a new pool.
+    pub fn builder() -> Builder<M> {
+        Builder::new()
+    }
+
+    pub(crate) fn new_inner(manager: M, config: Config) -> Self {
+        let max_open = if config.max_open == 0 {
+            CONNECTION_REQUEST_QUEUE_SIZE
+        } else {
+            config.max_open as usize
+        };
         let (opener_ch_sender, mut opener_ch) = mpsc::channel(max_open);
         let internals = Mutex::new(PoolInternals {
             free_conns: vec![],
@@ -171,27 +270,35 @@ impl<M: Manager> Pool<M> {
         });
 
         let shared1 = Arc::downgrade(&shared);
-        spawn(async move {
+        shared.manager.spawn_task(async move {
             while let Some(_) = opener_ch.next().await {
                 open_new_connection(&shared1).await;
             }
         });
 
+        if let Some(max_lifetime) = shared.config.max_lifetime {
+            let clean_rate = shared.config.clean_rate;
+            let shared1 = Arc::downgrade(&shared);
+            shared.manager.spawn_task(async move {
+                connection_cleaner(shared1, clean_rate, max_lifetime).await;
+            })
+        }
 
         Pool(shared)
     }
 
-    async fn put_back_conn(mut self, conn: Conn<M::Resource, M::Error>) {
-        spawn(async move {
-            recycle_conn(&self.0, conn).await;
-        });
-    }
-
-    pub async fn get(&self) -> Result<PooledObject<M>, Error<M::Error>> {
+    /// Returns a single connection by either opening a new connection
+    /// or returning an existing connection from the connection pool. Conn will
+    /// block until either a connection is returned or timeout.
+    pub async fn get(&self) -> Result<Connection<M>, Error<M::Error>> {
         self.get_timeout(self.0.config.get_timeout).await
     }
 
-    pub async fn get_timeout(&self, timeout: Duration) -> Result<PooledObject<M>, Error<M::Error>> {
+    /// Retrieves a connection from the pool, waiting for at most `timeout`
+    ///
+    /// The given timeout will be used instead of the configured connection
+    /// timeout.
+    pub async fn get_timeout(&self, timeout: Duration) -> Result<Connection<M>, Error<M::Error>> {
         let mut try_times: u32 = 0;
         let config = &self.0.config;
         loop {
@@ -217,7 +324,7 @@ impl<M: Manager> Pool<M> {
         &self,
         strategy: GetStrategy,
         dur: Duration,
-    ) -> Result<PooledObject<M>, Error<M::Error>> {
+    ) -> Result<Connection<M>, Error<M::Error>> {
         let timeout = timeout(dur);
         let config = &self.0.config;
 
@@ -225,22 +332,22 @@ impl<M: Manager> Pool<M> {
         let num_free = internals.free_conns.len();
         if strategy == GetStrategy::CachedOrNewConn && num_free > 0 {
             let c = internals.free_conns.swap_remove(0);
-            if let Some(max_lifetime) = config.max_lifetime {
-                drop(internals);
-                if c.expired(max_lifetime) {
-                    return Err(Error::BadConn);
-                }
 
-                let pooled = PooledObject {
-                    pool: Some(self.clone()),
-                    conn: Some(c),
-                };
-                return Ok(pooled);
+            if c.expired(config.max_lifetime) {
+                c.close(internals);
+                return Err(Error::BadConn);
             }
+
+            drop(internals);
+            let pooled = Connection {
+                pool: Some(self.clone()),
+                conn: Some(c),
+            };
+            return Ok(pooled);
         }
 
-        if let Some(max_open) = config.max_open {
-            if internals.num_open >= max_open {
+        if config.max_open > 0 {
+            if internals.num_open >= config.max_open {
                 let (req_sender, req_recv) = oneshot::channel();
                 let req_key = internals.next_request_id;
                 internals.next_request_id += 1;
@@ -261,7 +368,12 @@ impl<M: Manager> Pool<M> {
                     conn = req_recv.fuse() => {
                         match conn.unwrap() {
                             Ok(c) => {
-                                let pooled = PooledObject {
+                                if c.expired(config.max_lifetime) {
+                                    let mut internals = self.0.internals.lock().await;
+                                    c.close(internals);
+                                    return Err(Error::BadConn);
+                                }
+                                let pooled = Connection {
                                     pool: Some(self.clone()),
                                     conn: Some(c),
                                 };
@@ -278,14 +390,14 @@ impl<M: Manager> Pool<M> {
         drop(internals);
 
         log::debug!("get conn with manager create");
-        match self.0.manager.create().await {
+        match self.0.manager.connect().await {
             Ok(c) => {
                 let conn = Conn {
                     raw: Some(c),
                     last_err: Mutex::new(None),
                     created_at: Instant::now(),
                 };
-                let pooled = PooledObject {
+                let pooled = Connection {
                     pool: Some(self.clone()),
                     conn: Some(conn),
                 };
@@ -301,8 +413,10 @@ impl<M: Manager> Pool<M> {
     }
 }
 
-async fn recycle_conn<M: Manager>(shared: &Arc<SharedPool<M>>, mut conn: Conn<M::Resource, M::Error>) {
-
+async fn recycle_conn<M: Manager>(
+    shared: &Arc<SharedPool<M>>,
+    mut conn: Conn<M::Connection, M::Error>,
+) {
     let raw_conn = conn.raw.take().unwrap();
     let checked = shared.manager.check(raw_conn).await;
     let conn = match checked {
@@ -312,7 +426,7 @@ async fn recycle_conn<M: Manager>(shared: &Arc<SharedPool<M>>, mut conn: Conn<M:
         }
         Err(e) => Err(e),
     };
-    
+
     let internals = shared.internals.lock().await;
     put_conn(&shared, internals, conn).await;
 }
@@ -323,7 +437,7 @@ async fn open_new_connection<M: Manager>(shared: &Weak<SharedPool<M>>) {
         None => return,
     };
 
-    let create_r = shared.manager.create().await;
+    let create_r = shared.manager.connect().await;
     let mut internals = shared.internals.lock().await;
 
     let c = match create_r {
@@ -345,18 +459,16 @@ async fn open_new_connection<M: Manager>(shared: &Weak<SharedPool<M>>) {
 
 async fn put_conn<M: Manager>(
     shared: &Arc<SharedPool<M>>,
-    mut internals: MutexGuard<'_, PoolInternals<M::Resource, M::Error>>,
-    conn: Result<Conn<M::Resource, M::Error>, M::Error>,
+    mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
+    conn: Result<Conn<M::Connection, M::Error>, M::Error>,
 ) {
     if conn.is_err() {
         return maybe_open_new_connection(shared, internals).await;
     }
 
     let config = &shared.config;
-    if let Some(max_open) = config.max_open {
-        if internals.num_open > max_open {
-            return;
-        }
+    if config.max_open > 0 && internals.num_open > config.max_open {
+        return;
     }
 
     if internals.conn_requests.len() > 0 {
@@ -365,39 +477,37 @@ async fn put_conn<M: Manager>(
 
         // FIXME
         if let Err(Ok(conn)) = req.send(conn) {
-            return put_free_conn(shared, internals, conn);
+            return put_idle_conn(shared, internals, conn);
         }
         return;
     }
 
     if let Ok(conn) = conn {
-        return put_free_conn(shared, internals, conn);
+        return put_idle_conn(shared, internals, conn);
     }
 }
 
-fn put_free_conn<M: Manager>(
+fn put_idle_conn<M: Manager>(
     shared: &Arc<SharedPool<M>>,
-    mut internals: MutexGuard<'_, PoolInternals<M::Resource, M::Error>>,
-    conn: Conn<M::Resource, M::Error>,
+    mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
+    conn: Conn<M::Connection, M::Error>,
 ) {
     let config = &shared.config;
-    match config.max_idle {
-        Some(max_idle) if max_idle > internals.free_conns.len() as u64 => {
-            internals.free_conns.push(conn)
-        }
-        None => internals.free_conns.push(conn),
-        _ => (),
+    if config.max_idle > internals.free_conns.len() as u64 {
+        internals.free_conns.push(conn)
+    } else {
+        conn.close(internals)
     }
 }
 
 async fn maybe_open_new_connection<M: Manager>(
     shared: &Arc<SharedPool<M>>,
-    mut internals: MutexGuard<'_, PoolInternals<M::Resource, M::Error>>,
+    mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
 ) {
     let mut num_requests = internals.conn_requests.len() as u64;
     let config = &shared.config;
-    if let Some(max_open) = config.max_open {
-        let num_can_open = max_open - internals.num_open;
+    if config.max_open > 0 {
+        let num_can_open = config.max_open - internals.num_open;
         if num_requests > num_can_open {
             num_requests = num_can_open;
         }
@@ -411,10 +521,20 @@ async fn maybe_open_new_connection<M: Manager>(
     }
 }
 
-async fn connection_cleaner<M: Manager>(shared: &Arc<SharedPool<M>>, max_lifetime: Duration) {
-    let config = &shared.config;
-    let mut interval = interval(config.clean_rate);
-    let shared = Arc::downgrade(shared);
+async fn connection_cleaner<M: Manager>(
+    shared: Weak<SharedPool<M>>,
+    clean_rate: Duration,
+    max_lifetime: Duration,
+) {
+    let shared = match shared.upgrade() {
+        Some(shared) => shared,
+        None => {
+            log::debug!("failed to start connection_cleaner");
+            return;
+        }
+    };
+
+    let mut interval = interval(clean_rate);
 
     loop {
         interval.tick().await;
@@ -422,14 +542,7 @@ async fn connection_cleaner<M: Manager>(shared: &Arc<SharedPool<M>>, max_lifetim
     }
 }
 
-async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>, max_lifetime: Duration) {
-    let shared = match shared.upgrade() {
-        Some(shared) => shared,
-        None => return,
-    };
-
-    let config = &shared.config;
-
+async fn clean_connection<M: Manager>(shared: &Arc<SharedPool<M>>, max_lifetime: Duration) {
     let expired = Instant::now() - max_lifetime;
     let mut internals = shared.internals.lock().await;
     let mut closing = vec![];
@@ -450,31 +563,36 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>, max_lifetime
     }
 
     internals.max_lifetime_closed += closing.len() as u64;
+    internals.num_open -= closing.len() as u64;
     drop(closing);
 }
 
-pub struct PooledObject<M: Manager> {
+/// A smart pointer wrapping a connection.
+pub struct Connection<M: Manager> {
     pool: Option<Pool<M>>,
-    conn: Option<Conn<M::Resource, M::Error>>,
+    conn: Option<Conn<M::Connection, M::Error>>,
 }
 
-impl<M: Manager> Drop for PooledObject<M> {
+impl<M: Manager> Drop for Connection<M> {
     fn drop(&mut self) {
         let pool = self.pool.take().unwrap();
         let conn = self.conn.take().unwrap();
-        spawn(pool.put_back_conn(conn));
+        // FIXME: No clone!
+        pool.clone().0.manager.spawn_task(async move {
+            recycle_conn(&pool.0, conn).await;
+        });
     }
 }
 
-impl<M: Manager> Deref for PooledObject<M> {
-    type Target = M::Resource;
+impl<M: Manager> Deref for Connection<M> {
+    type Target = M::Connection;
     fn deref(&self) -> &Self::Target {
         &self.conn.as_ref().unwrap().raw.as_ref().unwrap()
     }
 }
 
-impl<M: Manager> DerefMut for PooledObject<M> {
-    fn deref_mut(&mut self) -> &mut M::Resource {
+impl<M: Manager> DerefMut for Connection<M> {
+    fn deref_mut(&mut self) -> &mut M::Connection {
         self.conn.as_mut().unwrap().raw.as_mut().unwrap()
     }
 }
