@@ -65,7 +65,7 @@
 //!}
 //!
 //! ```
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 #![recursion_limit = "256"]
 mod config;
 #[cfg(feature = "unstable")]

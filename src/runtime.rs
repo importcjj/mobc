@@ -106,12 +106,12 @@ mod runtime {
     pub struct TaskExecutor;
 
     impl TaskExecutor {
-        pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+        pub fn spawn<F>(&self, future: F)
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            task::spawn(future)
+            task::spawn(future);
         }
     }
 
@@ -125,9 +125,8 @@ mod runtime {
     }
 
     impl Executor for DefaultExecutor {
-        fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> JoinHandle {
-            let join = task::spawn(future);
-            Box::new(join)
+        fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+            task::spawn(future);
         }
     }
 }
