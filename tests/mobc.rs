@@ -3,7 +3,7 @@ use mobc::Error;
 use mobc::Manager;
 use mobc::Pool;
 use mobc::ResultFuture;
-use mobc::Runtime;
+use mobc::runtime::Runtime;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 

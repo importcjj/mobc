@@ -69,7 +69,8 @@
 #![recursion_limit = "256"]
 mod config;
 #[cfg(feature = "unstable")]
-mod runtime;
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+pub mod runtime;
 mod spawn;
 mod time;
 
@@ -82,8 +83,6 @@ use futures::select;
 use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
-#[cfg(feature = "unstable")]
-pub use runtime::{DefaultExecutor, Runtime, TaskExecutor};
 use spawn::spawn;
 use std::collections::HashMap;
 use std::error;
