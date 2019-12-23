@@ -3,6 +3,14 @@ name = "mobc"
 version = "0.4.0-alpha.1"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
+readme = "README.md"
+license = "MIT/Apache-2.0"
+description = "A generic connection pool with async/await support"
+repository = "https://github.com/importcjj/mobc"
+categories = ["asynchronous", "network-programming"]
+keywords = ["database", "pool", "async", "await"]
+documentation = "https://docs.rs/mobc/latest/mobc/"
+changelog = "https://github.com/importcjj/mobc/blob/master/CHANGELOG.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
@@ -22,3 +30,6 @@ log = "0.4"
 tokio = { version = "0.2", features = ["full"] }
 tokio-postgres = "=0.5.0-alpha.2"
 env_logger = "0.7"
+
+[package.metadata.docs.rs]
+features = ["tokio", "unstable"]
