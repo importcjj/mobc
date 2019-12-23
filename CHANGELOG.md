@@ -1,6 +1,13 @@
 
 # CHANGELOG
 
+## v0.3.3 2019-12-23
+
+#### Fixes
+
+* Fix Connection recycle.
+* Panics if `min_idle` is 0
+
 ## v0.3.2 2019-12-10
 
 #### Fixes
