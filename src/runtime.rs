@@ -1,136 +1,132 @@
 //! A batteries included runtime for applications using mobc.
-//! Mobc does not implement runtime, it simply exports runtime from:
-//! * [Tokio](https://docs.rs/tokio/latest/tokio/runtime/struct.Runtime.html)
-//! * [async-std](https://docs.rs/async-std/latest/async_std/task/index.html)
-//! More examples, see [here](https://github.com/importcjj/mobc/tree/master/postgres/examples)
-use crate::executor::JoinHandle;
-use crate::Executor;
-use futures::FutureExt;
-use std::future::Future;
+//! Mobc does not implement runtime, it simply exports runtime.
+
+pub use runtime::{DefaultExecutor, Runtime, TaskExecutor};
+
+use futures::Future;
 use std::pin::Pin;
-use std::time::Duration;
 
-#[cfg(feature = "tokio-runtime")]
-#[cfg(not(feature = "async-std-runtime"))]
-pub use tokio::runtime::Runtime;
+// A new type exports the default executor of Tokio..
+// pub type DefaultExecutor = DefaultExecutor;
 
-#[cfg(feature = "tokio-runtime")]
-#[cfg(not(feature = "async-std-runtime"))]
-pub use tokio::runtime::Handle as TaskExecutor;
-
-#[cfg(feature = "tokio-runtime")]
-#[cfg(not(feature = "async-std-runtime"))]
-pub use tokio::time::delay_for;
-
-#[cfg(feature = "async-std-runtime")]
-pub struct Runtime(TaskExecutor);
-
-#[cfg(feature = "async-std-runtime")]
-impl Runtime {
-    pub fn new() -> Option<Self> {
-        Some(Runtime(TaskExecutor))
-    }
-
-    pub fn handle(&self) -> &TaskExecutor {
-        &self.0
-    }
-
-    pub fn block_on<F, T>(&mut self, future: F) -> T
-    where
-        F: Future<Output = T>,
-    {
-        async_std::task::block_on(future)
-    }
-
-    pub fn spawn<F, T>(&self, future: F)
-    where
-        F: Future<Output = T> + Send + 'static,
-        T: Send + 'static,
-    {
-        async_std::task::spawn(future);
-    }
+/// A value that executes futures.
+/// see [tokio::Executor](https://docs.rs/tokio/0.2.0-alpha.6/tokio/executor/trait.Executor.html)
+pub trait Executor: Send + Sync + 'static + Clone {
+    /// Spawns a future object to run on this executor.
+    ///
+    /// `future` is passed to the executor, which will begin running it. The
+    /// future may run on the current thread or another thread at the discretion
+    /// of the `Executor` implementation.
+    fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>);
 }
 
-#[cfg(feature = "tokio-runtime")]
-#[cfg(not(feature = "async-std-runtime"))]
-impl Executor for tokio::runtime::Handle {
-    fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> JoinHandle {
-        let join = tokio::runtime::Handle::spawn(self, future);
+#[cfg(all(
+    feature = "tokio",
+    not(any(feature = "tokio-02-alpha6-global", feature = "async-std"))
+))]
+mod runtime {
+    use super::*;
+    pub use tokio::runtime::Handle as TaskExecutor;
+    pub use tokio::runtime::Runtime;
 
-        Box::new(join.map(|_| ()))
+    impl Executor for tokio::runtime::Handle {
+        fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+            tokio::runtime::Handle::spawn(self, future);
+        }
     }
-}
 
-#[cfg(feature = "async-std-runtime")]
-#[derive(Clone)]
-pub struct TaskExecutor;
-
-#[cfg(feature = "async-std-runtime")]
-impl TaskExecutor {
-    pub fn spawn<F>(&self, future: F) -> async_std::task::JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        async_std::task::spawn(future)
-    }
-}
-
-#[cfg(feature = "async-std-runtime")]
-impl Executor for TaskExecutor {
-    fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> JoinHandle {
-        let join = async_std::task::spawn(future);
-        Box::new(join)
-    }
-}
-
-#[cfg(feature = "tokio-runtime")]
-#[cfg(not(feature = "async-std-runtime"))]
-#[derive(Clone)]
-/// The default executor of tokio.
-pub struct DefaultExecutor;
-
-#[cfg(feature = "tokio-runtime")]
-#[cfg(not(feature = "async-std-runtime"))]
-impl DefaultExecutor {
+    #[derive(Clone)]
     /// The default executor of tokio.
-    pub fn current() -> Self {
-        Self {}
+    pub struct DefaultExecutor;
+
+    impl DefaultExecutor {
+        /// The default executor of tokio.
+        pub fn current() -> Self {
+            Self {}
+        }
+    }
+
+    impl Executor for DefaultExecutor {
+        fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+            tokio::spawn(future);
+        }
     }
 }
 
-#[cfg(feature = "tokio-runtime")]
-#[cfg(not(feature = "async-std-runtime"))]
-impl Executor for DefaultExecutor {
-    fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> JoinHandle {
-        let join = tokio::spawn(future);
-        Box::new(join.map(|_| ()))
+#[cfg(all(feature = "tokio-02-alpha6-global", not(feature = "async-std")))]
+mod runtime {
+    use super::*;
+    pub use tokio::executor::DefaultExecutor;
+    pub use tokio::runtime::Runtime;
+    pub use tokio::runtime::TaskExecutor;
+
+    impl<T> Executor for T
+    where
+        T: tokio::executor::Executor + Send + Sync + 'static + Clone,
+    {
+        fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+            tokio::executor::Executor::spawn(self, future);
+        }
     }
 }
 
-#[cfg(feature = "async-std-runtime")]
-#[derive(Clone)]
-pub struct DefaultExecutor;
+#[cfg(all(feature = "async-std", not(feature = "tokio-02-alpha6-global")))]
+mod runtime {
+    use super::*;
+    use async_std::task;
+    use async_std::task::JoinHandle;
+    pub struct Runtime(TaskExecutor);
 
-#[cfg(feature = "async-std-runtime")]
-impl DefaultExecutor {
-    pub fn current() -> Self {
-        Self {}
+    impl Runtime {
+        pub fn new() -> Option<Self> {
+            Some(Runtime(TaskExecutor))
+        }
+
+        pub fn handle(&self) -> &TaskExecutor {
+            &self.0
+        }
+
+        pub fn block_on<F, T>(&mut self, future: F) -> T
+        where
+            F: Future<Output = T>,
+        {
+            task::block_on(future)
+        }
+
+        pub fn spawn<F, T>(&self, future: F)
+        where
+            F: Future<Output = T> + Send + 'static,
+            T: Send + 'static,
+        {
+            task::spawn(future);
+        }
     }
-}
 
-#[cfg(feature = "async-std-runtime")]
-impl Executor for DefaultExecutor {
-    fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> JoinHandle {
-        let join = async_std::task::spawn(future);
-        Box::new(join)
+    #[derive(Clone)]
+    pub struct TaskExecutor;
+
+    impl TaskExecutor {
+        pub fn spawn<F>(&self, future: F)
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            task::spawn(future);
+        }
     }
-}
 
-#[cfg(feature = "async-std-runtime")]
-pub fn delay_for(dur: Duration) -> impl Future<Output = ()> {
-    use futures::FutureExt;
+    #[derive(Clone)]
+    pub struct DefaultExecutor;
 
-    let fut = futures::future::pending::<()>();
-    Box::pin(async_std::future::timeout(dur, fut).map(|_| ()))
+    impl DefaultExecutor {
+        pub fn current() -> Self {
+            Self {}
+        }
+    }
+
+    impl Executor for DefaultExecutor {
+        fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+            task::spawn(future);
+        }
+    }
 }

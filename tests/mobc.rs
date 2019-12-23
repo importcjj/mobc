@@ -1,75 +1,42 @@
-use mobc::futures;
-use mobc::AnyFuture;
-use mobc::ConnectionManager;
+use mobc::delay_for;
 use mobc::Error;
-use mobc::Executor;
+use mobc::Manager;
 use mobc::Pool;
-use std::error;
-use std::fmt;
+use mobc::ResultFuture;
+use mobc::Runtime;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-
-use mobc::runtime::{delay_for, Runtime, TaskExecutor};
 
 #[derive(Debug, PartialEq)]
 pub struct TestError;
 
-impl fmt::Display for TestError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.write_str("blammo")
-    }
-}
-
-impl error::Error for TestError {
-    fn description(&self) -> &str {
-        "Error"
-    }
-}
-
 #[derive(Debug, PartialEq)]
 struct FakeConnection(bool);
 
-struct OkManager {
-    executor: TaskExecutor,
-}
+struct OkManager;
 
-impl ConnectionManager for OkManager {
+impl Manager for OkManager {
     type Connection = FakeConnection;
     type Error = TestError;
-    type Executor = TaskExecutor;
 
-    fn get_executor(&self) -> Self::Executor {
-        self.executor.clone()
-    }
-
-    fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
         Box::pin(futures::future::ok(FakeConnection(true)))
     }
 
-    fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
         Box::pin(futures::future::ok(conn))
-    }
-
-    fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-        false
     }
 }
 
 struct NthConnectFailManager {
     num: AtomicIsize,
-    executor: TaskExecutor,
 }
 
-impl ConnectionManager for NthConnectFailManager {
+impl Manager for NthConnectFailManager {
     type Connection = FakeConnection;
     type Error = TestError;
-    type Executor = TaskExecutor;
 
-    fn get_executor(&self) -> Self::Executor {
-        self.executor.clone()
-    }
-
-    fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
         if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
             Box::pin(futures::future::ok(FakeConnection(true)))
         } else {
@@ -77,24 +44,19 @@ impl ConnectionManager for NthConnectFailManager {
         }
     }
 
-    fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
         Box::pin(futures::future::ok(conn))
-    }
-
-    fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-        false
     }
 }
 
 #[test]
-fn test_max_size_ok() {
+fn test_max_open_ok() {
     let mut rt = Runtime::new().unwrap();
     let handler = NthConnectFailManager {
         num: AtomicIsize::new(5),
-        executor: rt.handle().clone(),
     };
     rt.block_on(async {
-        let pool = Pool::builder().max_size(5).build(handler).await?;
+        let pool = Pool::builder().max_open(5).build(handler);
 
         let mut conns = vec![];
         for _ in 0..5 {
@@ -108,11 +70,9 @@ fn test_max_size_ok() {
 #[test]
 fn test_acquire_release() {
     let mut rt = Runtime::new().unwrap();
-    let handler = OkManager {
-        executor: rt.handle().clone(),
-    };
+    let handler = OkManager;
     rt.block_on(async {
-        let pool = Pool::builder().max_size(2).build(handler).await?;
+        let pool = Pool::builder().max_open(2).build(handler);
 
         let conn1 = pool.get().await.ok().unwrap();
         let conn2 = pool.get().await.ok().unwrap();
@@ -125,44 +85,39 @@ fn test_acquire_release() {
     .unwrap();
 }
 
-#[test]
-fn test_try_get() {
-    let mut rt = Runtime::new().unwrap();
-    let handler = OkManager {
-        executor: rt.handle().clone(),
-    };
-    rt.block_on(async {
-        let pool = Pool::builder().max_size(2).build(handler).await?;
+// #[test]
+// fn test_try_get() {
+//     let mut rt = Runtime::new().unwrap();
+//     let handler = OkManager;
+//     rt.block_on(async {
+//         let pool = Pool::builder().max_open(2).build(handler);
 
-        let conn1 = pool.try_get().await;
-        let conn2 = pool.try_get().await;
-        let conn3 = pool.try_get().await;
+//         let conn1 = pool.try_get().await;
+//         let conn2 = pool.try_get().await;
+//         let conn3 = pool.try_get().await;
 
-        assert!(conn1.is_some());
-        assert!(conn2.is_some());
-        assert!(conn3.is_none());
+//         assert!(conn1.is_some());
+//         assert!(conn2.is_some());
+//         assert!(conn3.is_none());
 
-        drop(conn1);
-        delay_for(Duration::from_secs(1)).await;
-        assert!(pool.try_get().await.is_some());
-        Ok::<(), Error<TestError>>(())
-    })
-    .unwrap();
-}
+//         drop(conn1);
+//         delay_for(Duration::from_secs(1)).await;
+//         assert!(pool.try_get().await.is_some());
+//         Ok::<(), Error<TestError>>(())
+//     })
+//     .unwrap();
+// }
 
 #[test]
 fn test_get_timeout() {
     let mut rt = Runtime::new().unwrap();
     let handle = rt.handle().clone();
-    let handler = OkManager {
-        executor: handle.clone(),
-    };
+    let handler = OkManager;
     rt.block_on(async {
         let pool = Pool::builder()
-            .max_size(1)
-            .connection_timeout(Duration::from_millis(500))
-            .build(handler)
-            .await?;
+            .max_open(1)
+            .get_timeout(Duration::from_millis(500))
+            .build(handler);
 
         let timeout = Duration::from_millis(100);
         let succeeds_immediately = pool.get_timeout(timeout).await;
@@ -211,36 +166,23 @@ fn test_drop_on_broken() {
         }
     }
 
-    struct Hanlder {
-        executor: TaskExecutor,
-    };
+    struct Handler;
 
-    impl ConnectionManager for Hanlder {
+    impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
-        type Executor = TaskExecutor;
 
-        fn get_executor(&self) -> Self::Executor {
-            self.executor.clone()
-        }
-
-        fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(Connection))
         }
 
-        fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
-        }
-
-        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-            true
+        fn check(&self, _conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::err(TestError))
         }
     }
-    let handler = Hanlder {
-        executor: rt.handle().clone(),
-    };
+    let handler = Handler;
     rt.block_on(async {
-        let pool = Pool::new(handler).await?;
+        let pool = Pool::new(handler);
 
         drop(pool.get().await.ok().unwrap());
         delay_for(Duration::from_secs(1)).await;
@@ -264,66 +206,28 @@ fn test_invalid_conn() {
         }
     }
 
-    struct Hanlder {
-        executor: TaskExecutor,
-    };
+    struct Handler;
 
-    impl ConnectionManager for Hanlder {
+    impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
-        type Executor = TaskExecutor;
 
-        fn get_executor(&self) -> Self::Executor {
-            self.executor.clone()
-        }
-
-        fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(Connection))
         }
 
-        fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+        fn check(&self, _conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::err(TestError))
         }
-
-        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-            false
-        }
     }
-    let handler = Hanlder {
-        executor: rt.handle().clone(),
-    };
+
     rt.block_on(async {
-        let pool = Pool::builder().max_size(1).build(handler).await?;
+        let pool = Pool::builder().max_open(1).build(Handler);
 
         drop(pool.get().await.ok().unwrap());
         delay_for(Duration::from_secs(1)).await;
         assert!(DROPPED.load(Ordering::SeqCst));
-        assert_eq!(1_u32, pool.state().await.connections);
-        Ok::<(), Error<TestError>>(())
-    })
-    .unwrap();
-}
-
-#[test]
-fn test_initialization_failure() {
-    let mut rt = Runtime::new().unwrap();
-    let handler = NthConnectFailManager {
-        num: AtomicIsize::new(0),
-        executor: rt.handle().clone(),
-    };
-    rt.block_on(async {
-        let err = Pool::builder()
-            .connection_timeout(Duration::from_secs(1))
-            .build(handler)
-            .await
-            .err()
-            .unwrap();
-
-        match err {
-            Error::Inner(TestError) => (),
-            _ => panic!("error unexpected"),
-        }
-
+        assert_eq!(1_u64, pool.state().await.connections);
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
@@ -334,17 +238,15 @@ fn test_lazy_initialization_failure() {
     let mut rt = Runtime::new().unwrap();
     let handler = NthConnectFailManager {
         num: AtomicIsize::new(0),
-        executor: rt.handle().clone(),
     };
     rt.block_on(async {
         let pool = Pool::builder()
-            .connection_timeout(Duration::from_secs(1))
-            .build_unchecked(handler)
-            .await;
+            .get_timeout(Duration::from_secs(1))
+            .build(handler);
 
         let err = pool.get().await.err().unwrap();
         match err {
-            Error::Timeout => (),
+            Error::Inner(TestError) => (),
             _ => panic!("{:?} expected"),
         }
 
@@ -356,15 +258,12 @@ fn test_lazy_initialization_failure() {
 #[test]
 fn test_get_global_timeout() {
     let mut rt = Runtime::new().unwrap();
-    let handler = OkManager {
-        executor: rt.handle().clone(),
-    };
+    let handler = OkManager {};
     rt.block_on(async {
         let pool = Pool::builder()
-            .max_size(1)
-            .connection_timeout(Duration::from_secs(1))
-            .build(handler)
-            .await?;
+            .max_open(1)
+            .get_timeout(Duration::from_secs(1))
+            .build(handler);
 
         let _c = pool.get().await.unwrap();
         let started_waiting = Instant::now();
@@ -389,21 +288,15 @@ fn test_idle_timeout() {
         }
     }
 
-    struct Hanlder {
+    struct Handler {
         num: AtomicIsize,
-        executor: TaskExecutor,
     };
 
-    impl ConnectionManager for Hanlder {
+    impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
-        type Executor = TaskExecutor;
 
-        fn get_executor(&self) -> Self::Executor {
-            self.executor.clone()
-        }
-
-        fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
             if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
                 Box::pin(futures::future::ok(Connection))
             } else {
@@ -411,25 +304,27 @@ fn test_idle_timeout() {
             }
         }
 
-        fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(conn))
         }
-
-        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-            false
-        }
     }
-    let handler = Hanlder {
+    let handler = Handler {
         num: AtomicIsize::new(5),
-        executor: rt.handle().clone(),
     };
     rt.block_on(async {
         let pool = Pool::builder()
-            .max_size(5)
-            .idle_timeout(Some(Duration::from_secs(1)))
-            .reaper_rate(Duration::from_secs(1))
-            .build(handler)
-            .await?;
+            .max_open(5)
+            .max_idle(Some(2))
+            .max_lifetime(Some(Duration::from_secs(1)))
+            .clean_rate(Duration::from_secs(1))
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+
+        drop(v);
 
         let conn = pool.get().await.unwrap();
         delay_for(Duration::from_secs(3)).await;
@@ -454,21 +349,15 @@ fn test_idle_timeout_partial_use() {
         }
     }
 
-    struct Hanlder {
+    struct Handler {
         num: AtomicIsize,
-        executor: TaskExecutor,
     };
 
-    impl ConnectionManager for Hanlder {
+    impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
-        type Executor = TaskExecutor;
 
-        fn get_executor(&self) -> Self::Executor {
-            self.executor.clone()
-        }
-
-        fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
             if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
                 Box::pin(futures::future::ok(Connection))
             } else {
@@ -476,25 +365,19 @@ fn test_idle_timeout_partial_use() {
             }
         }
 
-        fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(conn))
         }
-
-        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-            false
-        }
     }
-    let handler = Hanlder {
+    let handler = Handler {
         num: AtomicIsize::new(5),
-        executor: rt.handle().clone(),
     };
     rt.block_on(async {
         let pool = Pool::builder()
-            .max_size(5)
-            .idle_timeout(Some(Duration::from_secs(1)))
-            .reaper_rate(Duration::from_secs(1))
-            .build(handler)
-            .await?;
+            .max_open(5)
+            .max_lifetime(Some(Duration::from_secs(1)))
+            .clean_rate(Duration::from_secs(1))
+            .build(handler);
 
         for _i in 0..8_u8 {
             delay_for(Duration::from_millis(250)).await;
@@ -523,21 +406,15 @@ fn test_max_lifetime() {
         }
     }
 
-    struct Hanlder {
+    struct Handler {
         num: AtomicIsize,
-        executor: TaskExecutor,
     };
 
-    impl ConnectionManager for Hanlder {
+    impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
-        type Executor = TaskExecutor;
 
-        fn get_executor(&self) -> Self::Executor {
-            self.executor.clone()
-        }
-
-        fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
             if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
                 Box::pin(futures::future::ok(Connection))
             } else {
@@ -545,26 +422,27 @@ fn test_max_lifetime() {
             }
         }
 
-        fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(conn))
         }
-
-        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-            false
-        }
     }
-    let handler = Hanlder {
+    let handler = Handler {
         num: AtomicIsize::new(5),
-        executor: rt.handle().clone(),
     };
     rt.block_on(async {
         let pool = Pool::builder()
-            .max_size(5)
+            .max_open(5)
             .max_lifetime(Some(Duration::from_secs(1)))
-            .connection_timeout(Duration::from_secs(1))
-            .reaper_rate(Duration::from_secs(1))
-            .build(handler)
-            .await?;
+            .get_timeout(Duration::from_secs(1))
+            .clean_rate(Duration::from_secs(1))
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+
+        drop(v);
 
         let conn = pool.get().await.unwrap();
         delay_for(Duration::from_secs(2)).await;
@@ -583,46 +461,39 @@ fn test_min_idle() {
 
     struct Connection;
 
-    struct Hanlder {
-        executor: TaskExecutor,
-    };
+    struct Handler;
 
-    impl ConnectionManager for Hanlder {
+    impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
-        type Executor = TaskExecutor;
 
-        fn get_executor(&self) -> Self::Executor {
-            self.executor.clone()
-        }
-
-        fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(Connection))
         }
 
-        fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(conn))
-        }
-
-        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-            false
         }
     }
 
-    let handler = Hanlder {
-        executor: rt.handle().clone(),
-    };
+    let handler = Handler;
 
     rt.block_on(async {
-        let pool = Pool::builder()
-            .max_size(5)
-            .min_idle(Some(2))
-            .build(handler)
-            .await?;
-        delay_for(Duration::from_secs(2)).await;
+        let pool = Pool::builder().max_open(5).max_idle(Some(2)).build(handler);
 
-        assert_eq!(2_u32, pool.state().await.idle_connections);
-        assert_eq!(2_u32, pool.state().await.connections);
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(0_u64, pool.state().await.idle);
+        assert_eq!(5_u64, pool.state().await.connections);
+        assert_eq!(0_u64, pool.state().await.max_idle_closed);
+        drop(v);
+
+        delay_for(Duration::from_secs(1)).await;
+        assert_eq!(2_u64, pool.state().await.idle);
+        assert_eq!(2_u64, pool.state().await.connections);
+        assert_eq!(3_u64, pool.state().await.max_idle_closed);
         let pool = &pool;
         let mut conns = vec![];
         for _ in 0..3_u8 {
@@ -631,12 +502,14 @@ fn test_min_idle() {
 
         assert_eq!(3, conns.len());
         delay_for(Duration::from_secs(1)).await;
-        assert_eq!(2_u32, pool.state().await.idle_connections);
-        assert_eq!(5_u32, pool.state().await.connections);
-        std::mem::drop(conns);
+        assert_eq!(0_u64, pool.state().await.idle);
+        assert_eq!(3_u64, pool.state().await.connections);
+        assert_eq!(3_u64, pool.state().await.max_idle_closed);
+        drop(conns);
         delay_for(Duration::from_secs(1)).await;
-        assert_eq!(5_u32, pool.state().await.idle_connections);
-        assert_eq!(5_u32, pool.state().await.connections);
+        assert_eq!(2_u64, pool.state().await.idle);
+        assert_eq!(2_u64, pool.state().await.connections);
+        assert_eq!(4_u64, pool.state().await.max_idle_closed);
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
@@ -655,43 +528,37 @@ fn test_conns_drop_on_pool_drop() {
         }
     }
 
-    struct Hanlder {
-        executor: TaskExecutor,
-    };
+    struct Handler;
 
-    impl ConnectionManager for Hanlder {
+    impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
-        type Executor = TaskExecutor;
 
-        fn get_executor(&self) -> Self::Executor {
-            self.executor.clone()
-        }
-
-        fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(Connection))
         }
 
-        fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
+        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
             Box::pin(futures::future::ok(conn))
         }
-
-        fn has_broken(&self, _conn: &mut Option<Self::Connection>) -> bool {
-            false
-        }
     }
-    let handler = Hanlder {
-        executor: rt.handle().clone(),
-    };
+    let handler = Handler;
     rt.block_on(async {
         let pool = Pool::builder()
             .max_lifetime(Some(Duration::from_secs(10)))
-            .max_size(10)
-            .build(handler)
-            .await?;
+            .max_idle(Some(10))
+            .max_open(10)
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..10 {
+            v.push(pool.get().await.unwrap());
+        }
+        drop(v);
 
         drop(pool);
         for _ in 0..10_u8 {
+            log::debug!("{}", DROPPED.load(Ordering::SeqCst));
             if DROPPED.load(Ordering::SeqCst) == 10 {
                 return Ok::<(), Error<TestError>>(());
             }

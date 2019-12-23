@@ -1,95 +1,79 @@
 # mobc
 
-A generic connection pool, but async/.await
+A generic connection pool with async/await support.
 
 [![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=master)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-latest-%23dea584)](https://crates.io/crates/mobc)
 
 [Documentation](https://docs.rs/mobc/latest/mobc/)
+[Documentation](https://github.com/importcjj/mobc/blob/master/CHANGELOG.md)
 
 **Note: mobc requires at least Rust 1.39.**
 
 ## Features
 
 * Support async/.await syntax.
-* Support tokio 0.2 and async-std 1.0 runtimes.
+* Support both `tokio` and `async-std` runtimes.
 * Simple and fast customization
 
-## Adapter
-
-* [mobc-redis = "0.3.1"](https://crates.io/crates/mobc-redis)
-
-* [mobc-postgres = "0.3.1"](https://crates.io/crates/mobc-postgres)
 
 ## Usage
-
-*If you are using tokio 0.2-alpha.6, use mobc 0.2*
-
 ```toml
 [dependencies]
-mobc = "0.3"
+mobc = "=0.4.0-alpha.1"
 ```
 
 ## Example
 
+Using an imaginary "foodb" database.
+
 ```rust
-use mobc::{ConnectionManager, runtime::DefaultExecutor, Pool, AnyFuture};
+use mobc::{Manager, Pool, ResultFuture};
 
-struct FooManager;
-
-impl ConnectionManager for FooManager {
-    type Connection = FooConnection;
-    type Error = std::io::Error;
-    type Executor = DefaultExecutor;
-
-    fn get_executor(&self) -> Self::Executor {
-        DefaultExecutor::current()
-    }
-
-    fn connect(&self) -> AnyFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(FooConnection))
-    }
-
-    fn is_valid(&self, conn: Self::Connection) -> AnyFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(conn))
-    }
-
-    fn has_broken(&self, conn: &mut Option<Self::Connection>) -> bool {
-        false
-    }
-}
+#[derive(Debug)]
+struct FooError;
 
 struct FooConnection;
 
 impl FooConnection {
-    async fn query(&self) -> String {
-        "nori".to_string()
-    }
+   async fn query(&self) -> String {
+       "nori".to_string()
+   }
+}
+
+struct FooManager;
+
+impl Manager for FooManager {
+   type Connection = FooConnection;
+   type Error = FooError;
+
+   fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+       Box::pin(futures::future::ok(FooConnection))
+   }
+
+   fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
+       Box::pin(futures::future::ok(conn))
+   }
 }
 
 #[tokio::main]
 async fn main() {
-    let pool = mobc::Pool::builder()
-        .max_size(15)
-        .build(FooManager)
-        .await
-        .unwrap();
+   let pool = Pool::builder().max_open(15).build(FooManager);
+   let num: usize = 10000;
+   let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
-    let mut handles = vec![];
+   for _ in 0..num {
+       let pool = pool.clone();
+       let mut tx = tx.clone();
+       tokio::spawn(async move {
+           let conn = pool.get().await.unwrap();
+           let name = conn.query().await;
+           assert_eq!(name, "nori".to_string());
+           tx.send(()).await.unwrap();
+       });
+   }
 
-    for _ in 0..200 {
-        let pool = pool.clone();
-        let h = tokio::spawn(async move {
-            let conn = pool.get().await.unwrap();
-            let name = conn.query().await;
-            assert_eq!(name, "nori".to_string());
-        });
-
-        handles.push(h)
-    }
-
-    for h in handles {
-        h.await;
-    }
-
+   for _ in 0..num {
+       rx.recv().await.unwrap();
+   }
 }
 ```

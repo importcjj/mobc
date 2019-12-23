@@ -1,108 +1,84 @@
-use crate::ConnectionManager;
-use crate::Error;
-use crate::Pool;
+use crate::{Manager, Pool};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-pub(crate) struct Config<T> {
-    pub max_size: u32,
-    pub min_idle: Option<u32>,
-    pub max_concurrency: u32,
-    pub executor: T,
-    pub connection_timeout: Duration,
+const DEFAULT_MAX_IDLE_CONNS: u64 = 2;
+const DEFAULT_MAX_OPEN_CONNS: u64 = 10;
+const DEFAULT_BAD_CONN_RETRIES: u32 = 2;
+
+pub(crate) struct Config {
+    pub max_open: u64,
+    pub max_idle: u64,
     pub max_lifetime: Option<Duration>,
-    pub idle_timeout: Option<Duration>,
+    pub clean_rate: Duration,
+    pub max_bad_conn_retries: u32,
+    pub get_timeout: Duration,
 }
 
 /// A builder for a connection pool.
-pub struct Builder<M>
-where
-    M: ConnectionManager,
-{
-    max_size: u32,
-    min_idle: Option<u32>,
-    max_concurrency: u32,
+pub struct Builder<M> {
+    max_open: u64,
+    max_idle: Option<u64>,
     max_lifetime: Option<Duration>,
-    idle_timeout: Option<Duration>,
-    connection_timeout: Duration,
-    reaper_rate: Duration,
+    clean_rate: Duration,
+    max_bad_conn_retries: u32,
+    get_timeout: Duration,
     _keep: PhantomData<M>,
 }
 
-impl<M> Default for Builder<M>
-where
-    M: ConnectionManager,
-{
+impl<M> Default for Builder<M> {
     fn default() -> Self {
         Self {
-            max_size: 10,
-            min_idle: None,
-            max_concurrency: 10000,
-            idle_timeout: Some(Duration::from_secs(10 * 60)),
-            max_lifetime: Some(Duration::from_secs(30 * 60)),
-            connection_timeout: Duration::from_secs(30),
-            reaper_rate: Duration::from_secs(30),
+            max_open: DEFAULT_MAX_OPEN_CONNS,
+            max_idle: None,
+            max_lifetime: None,
+            clean_rate: Duration::from_secs(1),
+            max_bad_conn_retries: DEFAULT_BAD_CONN_RETRIES,
+            get_timeout: Duration::from_secs(30),
             _keep: PhantomData,
         }
     }
 }
 
-impl<M> Builder<M>
-where
-    M: ConnectionManager,
-{
+impl<M: Manager> Builder<M> {
     /// Constructs a new `Builder`.
     ///
     /// Parameters are initialized with their default values.
     pub fn new() -> Self {
-        Builder::default()
+        Default::default()
     }
 
     /// Sets the maximum number of connections managed by the pool.
     ///
-    /// Defaults to 10.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `max_size` is 0.
-    pub fn max_size(mut self, max_size: u32) -> Self {
-        assert!(max_size > 0, "max_size must be positive");
-        self.max_size = max_size;
+    /// 0 means unlimited, defaults to 10.
+    pub fn max_open(mut self, max_open: u64) -> Self {
+        self.max_open = max_open;
         self
     }
 
-    /// Sets the minimum idle connection count maintained by the pool.
+    /// Sets the maximum idle connection count maintained by the pool.
     ///
-    /// If set, the pool will try to maintain at least this many idle
-    /// connections at all times, while respecting the value of `max_size`.
+    /// The pool will maintain at most this many idle connections
+    /// at all times, while respecting the value of `max_open`.
     ///
-    /// Defaults to `None` (equivalent to the value of `max_size`).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `min_idle` is 0.
-    pub fn min_idle(mut self, min_idle: Option<u32>) -> Self {
-        if let Some(min_idle) = min_idle {
-            assert!(min_idle > 0, "min_idle must be positive");
-        }
-        self.min_idle = min_idle;
+    /// Defaults to 2.
+    pub fn max_idle(mut self, max_idle: Option<u64>) -> Self {
+        self.max_idle = max_idle;
         self
     }
 
     /// Sets the maximum lifetime of connections in the pool.
     ///
-    /// If set, connections will be closed after existing for at most 30 seconds
-    /// beyond this duration.
-    ///
     /// If a connection reaches its maximum lifetime while checked out it will
     /// be closed when it is returned to the pool.
     ///
-    /// Defaults to 30 minutes.
+    /// None meas reuse forever.
+    /// Defaults to None.
     ///
     /// # Panics
     ///
     /// Panics if `max_lifetime` is the zero `Duration`.
-    pub fn max_lifetime(mut self, max_lifetime: Option<Duration>) -> Builder<M> {
+    pub fn max_lifetime(mut self, max_lifetime: Option<Duration>) -> Self {
         assert_ne!(
             max_lifetime,
             Some(Duration::from_secs(0)),
@@ -112,27 +88,7 @@ where
         self
     }
 
-    /// Sets the idle timeout used by the pool.
-    ///
-    /// If set, connections will be closed after sitting idle for at most 30
-    /// seconds beyond this duration.
-    ///
-    /// Defaults to 10 minutes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `idle_timeout` is the zero `Duration`.
-    pub fn idle_timeout(mut self, idle_timeout: Option<Duration>) -> Builder<M> {
-        assert_ne!(
-            idle_timeout,
-            Some(Duration::from_secs(0)),
-            "idle_timeout must be positive"
-        );
-        self.idle_timeout = idle_timeout;
-        self
-    }
-
-    /// Sets the connection timeout used by the pool.
+    /// Sets the get timeout used by the pool.
     ///
     /// Calls to `Pool::get` will wait this long for a connection to become
     /// available before returning an error.
@@ -142,68 +98,56 @@ where
     /// # Panics
     ///
     /// Panics if `connection_timeout` is the zero duration
-    pub fn connection_timeout(mut self, connection_timeout: Duration) -> Builder<M> {
+    pub fn get_timeout(mut self, get_timeout: Duration) -> Self {
         assert!(
-            connection_timeout > Duration::from_secs(0),
+            get_timeout > Duration::from_secs(0),
             "connection_timeout must be positive"
         );
-        self.connection_timeout = connection_timeout;
+        self.get_timeout = get_timeout;
         self
     }
 
     // used by tests
     #[doc(hidden)]
     #[allow(dead_code)]
-    pub fn reaper_rate(mut self, reaper_rate: Duration) -> Builder<M> {
-        self.reaper_rate = reaper_rate;
+    pub fn clean_rate(mut self, clean_rate: Duration) -> Builder<M> {
+        assert!(
+            clean_rate > Duration::from_secs(0),
+            "connection_timeout must be positive"
+        );
+
+        if clean_rate > Duration::from_secs(1) {
+            self.clean_rate = clean_rate;
+        }
+
         self
     }
 
     /// Consumes the builder, returning a new, initialized pool.
     ///
-    /// It will block until the pool has established its configured minimum
-    /// number of connections, or it times out.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the pool is unable to open its minimum number of
-    /// connections.
-    ///
     /// # Panics
     ///
-    /// Panics if `min_idle` is greater than `max_size`.
-    pub async fn build(self, manager: M) -> Result<Pool<M>, Error<M::Error>> {
-        let pool = self.build_unchecked(manager).await;
-        pool.wait_for_initialization().await?;
-        Ok(pool)
-    }
+    /// Panics if `max_idle` is greater than `max_size`.
+    pub fn build(self, manager: M) -> Pool<M> {
+        use std::cmp;
+        let max_idle = self
+            .max_idle
+            .unwrap_or_else(|| cmp::min(self.max_open, DEFAULT_MAX_IDLE_CONNS));
 
-    /// Consumes the builder, returning a new pool.
-    ///
-    /// Unlike `build`, this method does not wait for any connections to be
-    /// established before returning.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `min_idle` is greater than `max_size`.
-    pub async fn build_unchecked(self, manager: M) -> Pool<M> {
-        if let Some(min_idle) = self.min_idle {
-            assert!(
-                self.max_size >= min_idle,
-                "min_idle must be no larger than max_size"
-            );
-        }
+        assert!(
+            self.max_open >= max_idle,
+            "max_idle must be no larger than max_open"
+        );
 
         let config = Config {
-            max_size: self.max_size,
-            min_idle: self.min_idle,
+            max_open: self.max_open,
+            max_idle: max_idle,
             max_lifetime: self.max_lifetime,
-            idle_timeout: self.idle_timeout,
-            max_concurrency: self.max_concurrency,
-            connection_timeout: self.connection_timeout,
-            executor: manager.get_executor(),
+            get_timeout: self.get_timeout,
+            clean_rate: self.clean_rate,
+            max_bad_conn_retries: self.max_bad_conn_retries,
         };
 
-        Pool::new_inner(config, manager, self.reaper_rate).await
+        Pool::new_inner(manager, config)
     }
 }
