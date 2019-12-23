@@ -1,11 +1,11 @@
-pub use time::{interval, timeout};
+pub use time::{delay_for, interval};
 
 #[cfg(all(
     feature = "tokio",
     not(any(feature = "tokio-02-alpha6", feature = "async-std"))
 ))]
 mod time {
-    pub use tokio::time::delay_for as timeout;
+    pub use tokio::time::delay_for;
     pub use tokio::time::interval;
 }
 
@@ -13,7 +13,7 @@ mod time {
 mod time {
     use std::time::Duration;
     use std::time::Instant;
-    pub use tokio_timer::delay_for as timeout;
+    pub use tokio_timer::delay_for;
 
     pub fn interval(duration: Duration) -> Interval {
         Interval(tokio_timer::Interval::new_interval(duration))
@@ -48,7 +48,7 @@ mod time {
         Interval(async_std::stream::interval(duration))
     }
 
-    pub fn timeout(duration: Duration) -> impl Future<Output = ()> {
+    pub fn delay_for(duration: Duration) -> impl Future<Output = ()> {
         use futures::FutureExt;
         let fut = futures::future::pending::<()>();
         Box::pin(async_std::future::timeout(duration, fut).map(|_| ()))

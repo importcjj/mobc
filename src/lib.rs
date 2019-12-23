@@ -93,7 +93,8 @@ use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
-use time::{interval, timeout};
+#[doc(hidden)]
+pub use time::{delay_for, interval};
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
 
@@ -194,7 +195,7 @@ struct Conn<C, E> {
 }
 
 impl<C, E> Conn<C, E> {
-    fn close(&self, mut internals: &mut MutexGuard<'_, PoolInternals<C, E>>) {
+    fn close(&self, internals: &mut MutexGuard<'_, PoolInternals<C, E>>) {
         internals.num_open -= 1;
     }
 
@@ -216,6 +217,12 @@ struct PoolInternals<C, E> {
     next_request_id: u64,
     wait_count: u64,
     wait_duration: Duration,
+}
+
+impl<C, E> Drop for PoolInternals<C, E> {
+    fn drop(&mut self) {
+        log::debug!("Pool internal drop");
+    }
 }
 
 /// A generic connection pool.
@@ -355,7 +362,7 @@ impl<M: Manager> Pool<M> {
         strategy: GetStrategy,
         dur: Duration,
     ) -> Result<Connection<M>, Error<M::Error>> {
-        let timeout = timeout(dur);
+        let timeout = delay_for(dur);
         let config = &self.0.config;
 
         let mut internals = self.0.internals.lock().await;
@@ -574,28 +581,35 @@ async fn connection_cleaner<M: Manager>(
     clean_rate: Duration,
     max_lifetime: Duration,
 ) {
+    let mut interval = interval(clean_rate);
+    interval.tick().await;
+
+    while clean_connection(&shared, max_lifetime).await {
+        interval.tick().await;
+    }
+}
+
+async fn clean_connection<M: Manager>(
+    shared: &Weak<SharedPool<M>>,
+    max_lifetime: Duration,
+) -> bool {
     let shared = match shared.upgrade() {
         Some(shared) => shared,
         None => {
             log::debug!("failed to start connection_cleaner");
-            return;
+            return false;
         }
     };
 
-    let mut interval = interval(clean_rate);
-
-    loop {
-        interval.tick().await;
-        clean_connection(&shared, max_lifetime).await;
-    }
-}
-
-async fn clean_connection<M: Manager>(shared: &Arc<SharedPool<M>>, max_lifetime: Duration) {
     let expired = Instant::now() - max_lifetime;
     let mut internals = shared.internals.lock().await;
     let mut closing = vec![];
 
     let mut i = 0;
+    log::debug!(
+        "clean connections, idle conns {}",
+        internals.free_conns.len()
+    );
 
     loop {
         if i >= internals.free_conns.len() {
@@ -614,6 +628,7 @@ async fn clean_connection<M: Manager>(shared: &Arc<SharedPool<M>>, max_lifetime:
     for conn in closing {
         conn.close(&mut internals);
     }
+    return true;
 }
 
 /// A smart pointer wrapping a connection.

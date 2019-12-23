@@ -129,7 +129,10 @@ impl<M: Manager> Builder<M> {
     ///
     /// Panics if `max_idle` is greater than `max_size`.
     pub fn build(self, manager: M) -> Pool<M> {
-        let max_idle = self.max_idle.unwrap_or(DEFAULT_MAX_IDLE_CONNS);
+        use std::cmp;
+        let max_idle = self
+            .max_idle
+            .unwrap_or_else(|| cmp::min(self.max_open, DEFAULT_MAX_IDLE_CONNS));
 
         assert!(
             self.max_open >= max_idle,
