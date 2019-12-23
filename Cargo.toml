@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.4.0-alpha.0"
+version = "0.4.0-alpha.1"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 

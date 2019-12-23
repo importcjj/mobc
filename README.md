@@ -19,7 +19,7 @@ A generic connection pool with async/await support.
 ## Usage
 ```toml
 [dependencies]
-mobc = "=0.4.0-alpha.0"
+mobc = "=0.4.0-alpha.1"
 ```
 
 ## Example
