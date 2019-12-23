@@ -56,22 +56,12 @@ async fn main() {
     env_logger::init();
     let config = tokio_postgres::Config::from_str("postgres://jiaju:jiaju@localhost:5432").unwrap();
     let manager = ConnectionManager::new(config, NoTls);
-    let client = manager.connect().await.unwrap();
-    // without pool (just using one client of it)
-    let now = Instant::now();
-    {
-        for _ in 0usize..16000usize {
-            let rows = client.query("SELECT 1 + 2", &[]).await.unwrap();
-            let value: i32 = rows[0].get(0);
-            assert_eq!(value, 3);
-        }
-    }
-    let d1 = now.elapsed();
-    println!("Without spawn: {:?}", d1);
-    let pool = Pool::new(manager);
+    let pool = Pool::builder().max_open(20).build(manager);
+    const MAX: usize = 5000;
+
     let now = Instant::now();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(16);
-    for i in 0usize..16000usize {
+    for i in 0..MAX {
         let pool = pool.clone();
         let mut tx_c = tx.clone();
         tokio::spawn(async move {
@@ -82,10 +72,9 @@ async fn main() {
             tx_c.send(i).await.unwrap();
         });
     }
-    for _ in 0usize..16000usize {
+    for _ in 0..MAX {
         rx.recv().await.unwrap();
     }
-    let d2 = now.elapsed();
-    println!("With spawn: {:?}", d2);
-    println!("Performance: {}%", 100 * d1.as_millis() / d2.as_millis());
+    
+    println!("cost: {:?}", now.elapsed());
 }

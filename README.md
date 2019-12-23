@@ -1,10 +1,11 @@
 # mobc
 
-A generic connection pool, but async/.await
+A generic connection pool with async/await support.
 
-[![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=0.4.x)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-latest-%23dea584)](https://crates.io/crates/mobc)
+[![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=master)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-latest-%23dea584)](https://crates.io/crates/mobc)
 
 [Documentation](https://docs.rs/mobc/latest/mobc/)
+[Documentation](https://github.com/importcjj/mobc/blob/master/CHANGELOG.md)
 
 **Note: mobc requires at least Rust 1.39.**
 
@@ -16,9 +17,6 @@ A generic connection pool, but async/.await
 
 
 ## Usage
-
-*If you are using tokio 0.2-alpha.6, use mobc 0.2*
-
 ```toml
 [dependencies]
 mobc = "=0.4.0-alpha.0"
