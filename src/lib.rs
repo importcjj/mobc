@@ -89,8 +89,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_open: Some(2),
-            max_idle: Some(2),
+            max_open: Some(16),
+            max_idle: Some(16),
             max_lifetime: Some(Duration::from_secs(30 * 60)),
             clean_rate: Duration::from_secs(30),
             max_bad_conn_retries: 2,
