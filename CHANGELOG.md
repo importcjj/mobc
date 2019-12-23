@@ -18,6 +18,14 @@ Refactored most of the code, but it was all tested. I'm sorry, some API changes,
   * `max_size` to `max_open`. If you set it to 0, the pool will create unlimited new connections if necessary. However, these connections are still limited by `max_idle` when idle
 * `Pool.try_get` are removed.
 
+
+## v0.3.3 2019-12-23
+
+#### Fixes
+
+* Fix Connection recycle.
+* Panics if `min_idle` is 0
+
 ## v0.3.2 2019-12-10
 
 #### Fixes
