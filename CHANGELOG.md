@@ -3,6 +3,11 @@
 
 ## v0.4.0-alpha.1 2019-12-23
 
+#### Fixes
+* Fix docs
+
+## v0.4.0-alpha.1 2019-12-23
+
 Refactored most of the code, but it was all tested. I'm sorry, some API changes, but in exchange for better experience and performance.
 
 #### Changes
