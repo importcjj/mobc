@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.4.0-alpha.2"
+version = "0.4.0-alpha.3"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -16,13 +16,10 @@ changelog = "https://github.com/importcjj/mobc/blob/master/CHANGELOG.md"
 [features]
 default = ["tokio"]
 unstable = []
-tokio-02-alpha6 = ["tokio-timer", "tokio-executor"]
 
 [dependencies]
 futures = "0.3"
-tokio = { version = "0.2", features=["rt-core", "time"], optional = true }
-tokio-timer = { version = "=0.3.0-alpha.6", optional = true }
-tokio-executor = { version = "=0.2.0-alpha.6", optional = true }
+tokio = { version = "0.2.6", features=["rt-core", "time"], optional = true }
 async-std = { version = "1.0", features=["unstable"], optional = true }
 log = "0.4"
 

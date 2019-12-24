@@ -75,6 +75,6 @@ async fn main() {
     for _ in 0..MAX {
         rx.recv().await.unwrap();
     }
-    
+
     println!("cost: {:?}", now.elapsed());
 }

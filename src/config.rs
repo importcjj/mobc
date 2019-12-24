@@ -12,7 +12,7 @@ pub(crate) struct Config {
     pub max_lifetime: Option<Duration>,
     pub clean_rate: Duration,
     pub max_bad_conn_retries: u32,
-    pub get_timeout: Duration,
+    pub get_timeout: Option<Duration>,
 }
 
 /// A builder for a connection pool.
@@ -22,7 +22,7 @@ pub struct Builder<M> {
     max_lifetime: Option<Duration>,
     clean_rate: Duration,
     max_bad_conn_retries: u32,
-    get_timeout: Duration,
+    get_timeout: Option<Duration>,
     _keep: PhantomData<M>,
 }
 
@@ -34,7 +34,7 @@ impl<M> Default for Builder<M> {
             max_lifetime: None,
             clean_rate: Duration::from_secs(1),
             max_bad_conn_retries: DEFAULT_BAD_CONN_RETRIES,
-            get_timeout: Duration::from_secs(30),
+            get_timeout: Some(Duration::from_secs(30)),
             _keep: PhantomData,
         }
     }
@@ -93,16 +93,19 @@ impl<M: Manager> Builder<M> {
     /// Calls to `Pool::get` will wait this long for a connection to become
     /// available before returning an error.
     ///
+    /// None meas never timeout.
     /// Defaults to 30 seconds.
     ///
     /// # Panics
     ///
     /// Panics if `connection_timeout` is the zero duration
-    pub fn get_timeout(mut self, get_timeout: Duration) -> Self {
-        assert!(
-            get_timeout > Duration::from_secs(0),
-            "connection_timeout must be positive"
+    pub fn get_timeout(mut self, get_timeout: Option<Duration>) -> Self {
+        assert_ne!(
+            get_timeout,
+            Some(Duration::from_secs(0)),
+            "get_timeout must be positive"
         );
+
         self.get_timeout = get_timeout;
         self
     }

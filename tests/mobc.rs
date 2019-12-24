@@ -1,9 +1,9 @@
 use mobc::delay_for;
+use mobc::runtime::Runtime;
 use mobc::Error;
 use mobc::Manager;
 use mobc::Pool;
 use mobc::ResultFuture;
-use mobc::runtime::Runtime;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -116,7 +116,7 @@ fn test_get_timeout() {
     rt.block_on(async {
         let pool = Pool::builder()
             .max_open(1)
-            .get_timeout(Duration::from_millis(500))
+            .get_timeout(Some(Duration::from_millis(500)))
             .build(handler);
 
         let timeout = Duration::from_millis(100);
@@ -241,7 +241,7 @@ fn test_lazy_initialization_failure() {
     };
     rt.block_on(async {
         let pool = Pool::builder()
-            .get_timeout(Duration::from_secs(1))
+            .get_timeout(Some(Duration::from_secs(1)))
             .build(handler);
 
         let err = pool.get().await.err().unwrap();
@@ -262,7 +262,7 @@ fn test_get_global_timeout() {
     rt.block_on(async {
         let pool = Pool::builder()
             .max_open(1)
-            .get_timeout(Duration::from_secs(1))
+            .get_timeout(Some(Duration::from_secs(1)))
             .build(handler);
 
         let _c = pool.get().await.unwrap();
@@ -433,7 +433,7 @@ fn test_max_lifetime() {
         let pool = Pool::builder()
             .max_open(5)
             .max_lifetime(Some(Duration::from_secs(1)))
-            .get_timeout(Duration::from_secs(1))
+            .get_timeout(Some(Duration::from_secs(1)))
             .clean_rate(Duration::from_secs(1))
             .build(handler);
 

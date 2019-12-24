@@ -93,7 +93,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 #[doc(hidden)]
-pub use time::{delay_for, interval};
+pub use time::{delay_for, delay_until, interval};
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
 
@@ -327,27 +327,34 @@ impl<M: Manager> Pool<M> {
     /// or returning an existing connection from the connection pool. Conn will
     /// block until either a connection is returned or timeout.
     pub async fn get(&self) -> Result<Connection<M>, Error<M::Error>> {
-        self.get_timeout(self.0.config.get_timeout).await
+        match self.0.config.get_timeout {
+            Some(duration) => self.get_timeout(duration).await,
+            None => self.inner_get_never_timeout().await,
+        }
     }
 
     /// Retrieves a connection from the pool, waiting for at most `timeout`
     ///
     /// The given timeout will be used instead of the configured connection
     /// timeout.
-    pub async fn get_timeout(&self, timeout: Duration) -> Result<Connection<M>, Error<M::Error>> {
+    pub async fn get_timeout(&self, duration: Duration) -> Result<Connection<M>, Error<M::Error>> {
         let mut try_times: u32 = 0;
+        let deadline = Instant::now() + duration;
+
         let config = &self.0.config;
         loop {
+            let timeout = delay_until(deadline);
             try_times += 1;
             match self
-                .inner_get_timeout(GetStrategy::CachedOrNewConn, timeout)
+                .inner_get_ctx(GetStrategy::CachedOrNewConn, timeout)
                 .await
             {
                 Ok(conn) => return Ok(conn),
                 Err(Error::BadConn) => {
                     if try_times == config.max_bad_conn_retries {
+                        let timeout = delay_until(deadline);
                         return self
-                            .inner_get_timeout(GetStrategy::AlwaysNewConn, timeout)
+                            .inner_get_ctx(GetStrategy::AlwaysNewConn, timeout)
                             .await;
                     }
                 }
@@ -356,15 +363,45 @@ impl<M: Manager> Pool<M> {
         }
     }
 
-    async fn inner_get_timeout(
+    async fn inner_get_never_timeout(&self) -> Result<Connection<M>, Error<M::Error>> {
+        let mut try_times: u32 = 0;
+        let config = &self.0.config;
+        loop {
+            let never_ot = futures::future::pending();
+            try_times += 1;
+            match self
+                .inner_get_ctx(GetStrategy::CachedOrNewConn, never_ot)
+                .await
+            {
+                Ok(conn) => return Ok(conn),
+                Err(Error::BadConn) => {
+                    if try_times == config.max_bad_conn_retries {
+                        let never_ot = futures::future::pending();
+                        return self
+                            .inner_get_ctx(GetStrategy::AlwaysNewConn, never_ot)
+                            .await;
+                    }
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
+    async fn inner_get_ctx(
         &self,
         strategy: GetStrategy,
-        dur: Duration,
+        ctx: impl Future<Output = ()> + Unpin,
     ) -> Result<Connection<M>, Error<M::Error>> {
-        let timeout = delay_for(dur);
         let config = &self.0.config;
+        let mut ctx = ctx.fuse();
 
         let mut internals = self.0.internals.lock().await;
+        select! {
+            () = ctx => {
+                return Err(Error::Timeout)
+            }
+            default => ()
+        }
         let num_free = internals.free_conns.len();
         if strategy == GetStrategy::CachedOrNewConn && num_free > 0 {
             let c = internals.free_conns.swap_remove(0);
@@ -394,7 +431,7 @@ impl<M: Manager> Pool<M> {
 
                 let wait_start = Instant::now();
                 select! {
-                    () = timeout.fuse() => {
+                    () = ctx.fuse() => {
                         let mut internals = self.0.internals.lock().await;
                         internals.conn_requests.remove(&req_key);
                         internals.wait_duration += wait_start.elapsed();

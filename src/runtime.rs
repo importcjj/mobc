@@ -53,22 +53,22 @@ mod runtime {
     }
 }
 
-#[cfg(all(feature = "tokio-02-alpha6-global", not(feature = "async-std")))]
-mod runtime {
-    use super::*;
-    pub use tokio::executor::DefaultExecutor;
-    pub use tokio::runtime::Runtime;
-    pub use tokio::runtime::TaskExecutor;
+// #[cfg(all(feature = "tokio-02-alpha6-global", not(feature = "async-std")))]
+// mod runtime {
+//     use super::*;
+//     pub use tokio02alpha6::excutor::DefaultExecutor;
+//     pub use tokio02alpha6::runtime::Runtime;
+//     pub use tokio02alpha6::runtime::TaskExecutor;
 
-    impl<T> Executor for T
-    where
-        T: tokio::executor::Executor + Send + Sync + 'static + Clone,
-    {
-        fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-            tokio::executor::Executor::spawn(self, future);
-        }
-    }
-}
+//     impl<T> Executor for T
+//     where
+//         T: tokio02alpha6::executor::Executor + Send + Sync + 'static + Clone,
+//     {
+//         fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+//             tokio02alpha6::executor::Executor::spawn(self, future);
+//         }
+//     }
+// }
 
 #[cfg(all(feature = "async-std", not(feature = "tokio-02-alpha6-global")))]
 mod runtime {
