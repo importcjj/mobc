@@ -75,8 +75,8 @@ mod spawn;
 mod time;
 
 pub use config::Builder;
-use config::Config;
-use futures::channel::mpsc::{self, Sender};
+use config::{Config, InternalConfig, ShareConfig};
+use futures::channel::mpsc::{self, Receiver, Sender};
 use futures::channel::oneshot::{self, Sender as ReqSender};
 use futures::lock::{Mutex, MutexGuard};
 use futures::select;
@@ -181,7 +181,7 @@ pub trait Manager: Send + Sync + 'static {
 }
 
 struct SharedPool<M: Manager> {
-    config: Config,
+    config: ShareConfig,
     manager: M,
     internals: Mutex<PoolInternals<M::Connection, M::Error>>,
 }
@@ -207,6 +207,7 @@ impl<C, E> Conn<C, E> {
 }
 
 struct PoolInternals<C, E> {
+    config: InternalConfig,
     opener_ch: Sender<()>,
     free_conns: Vec<Conn<C, E>>,
     conn_requests: HashMap<u64, ReqSender<Result<Conn<C, E>, E>>>,
@@ -216,6 +217,7 @@ struct PoolInternals<C, E> {
     next_request_id: u64,
     wait_count: u64,
     wait_duration: Duration,
+    cleaner_ch: Option<Sender<()>>,
 }
 
 impl<C, E> Drop for PoolInternals<C, E> {
@@ -281,6 +283,82 @@ impl<M: Manager> Pool<M> {
         Builder::new()
     }
 
+    /// Sets the maximum number of connections managed by the pool.
+    ///
+    /// 0 means unlimited, defaults to 10.
+    pub async fn set_max_open_conns(&self, n: u64) {
+        let mut internals = self.0.internals.lock().await;
+        internals.config.max_open = n;
+        if n > 0 && internals.config.max_idle > n {
+            drop(internals);
+            self.set_max_idle_conns(n).await;
+        }
+    }
+
+    /// Sets the maximum idle connection count maintained by the pool.
+    ///
+    /// The pool will maintain at most this many idle connections
+    /// at all times, while respecting the value of `max_open`.
+    ///
+    /// Defaults to 2.
+    pub async fn set_max_idle_conns(&self, n: u64) {
+        let mut internals = self.0.internals.lock().await;
+        internals.config.max_idle =
+            if internals.config.max_open > 0 && n > internals.config.max_open {
+                internals.config.max_open
+            } else {
+                n
+            };
+
+        let max_idle = internals.config.max_idle as usize;
+        if internals.free_conns.len() > max_idle {
+            let closing = internals.free_conns.split_off(max_idle);
+            internals.max_idle_closed += closing.len() as u64;
+            for conn in closing {
+                conn.close(&mut internals);
+            }
+        }
+    }
+
+    /// Sets the maximum lifetime of connections in the pool.
+    ///
+    /// Expired connections may be closed lazily before reuse.
+    ///
+    /// None meas reuse forever.
+    /// Defaults to None.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_lifetime` is the zero `Duration`.
+    pub async fn set_conn_max_lifetime(&self, max_lifetime: Option<Duration>) {
+        assert_ne!(
+            max_lifetime,
+            Some(Duration::from_secs(0)),
+            "max_lifetime must be positive"
+        );
+        let mut internals = self.0.internals.lock().await;
+        internals.config.max_lifetime = max_lifetime;
+        if let Some(lifetime) = max_lifetime {
+            match internals.config.max_lifetime {
+                Some(prev) if lifetime < prev && internals.cleaner_ch.is_some() => {
+                    // FIXME
+                    let _ = internals.cleaner_ch.as_mut().unwrap().send(()).await;
+                }
+                _ => (),
+            }
+        }
+
+        if max_lifetime.is_some() && internals.num_open > 0 && internals.cleaner_ch.is_none() {
+            let shared1 = Arc::downgrade(&self.0);
+            let clean_rate = self.0.config.clean_rate;
+            let (cleaner_ch_sender, cleaner_ch) = mpsc::channel(1);
+            internals.cleaner_ch = Some(cleaner_ch_sender);
+            self.0.manager.spawn_task(async move {
+                connection_cleaner(shared1, cleaner_ch, clean_rate).await;
+            });
+        }
+    }
+
     pub(crate) fn new_inner(manager: M, config: Config) -> Self {
         let max_open = if config.max_open == 0 {
             CONNECTION_REQUEST_QUEUE_SIZE
@@ -288,7 +366,9 @@ impl<M: Manager> Pool<M> {
             config.max_open as usize
         };
         let (opener_ch_sender, mut opener_ch) = mpsc::channel(max_open);
+        let (share_config, internal_config) = config.split();
         let internals = Mutex::new(PoolInternals {
+            config: internal_config,
             free_conns: vec![],
             conn_requests: HashMap::new(),
             num_open: 0,
@@ -298,9 +378,10 @@ impl<M: Manager> Pool<M> {
             max_idle_closed: 0,
             opener_ch: opener_ch_sender,
             wait_duration: Duration::from_secs(0),
+            cleaner_ch: None,
         });
         let shared = Arc::new(SharedPool {
-            config,
+            config: share_config,
             manager,
             internals,
         });
@@ -311,14 +392,6 @@ impl<M: Manager> Pool<M> {
                 open_new_connection(&shared1).await;
             }
         });
-
-        if let Some(max_lifetime) = shared.config.max_lifetime {
-            let clean_rate = shared.config.clean_rate;
-            let shared1 = Arc::downgrade(&shared);
-            shared.manager.spawn_task(async move {
-                connection_cleaner(shared1, clean_rate, max_lifetime).await;
-            })
-        }
 
         Pool(shared)
     }
@@ -392,7 +465,6 @@ impl<M: Manager> Pool<M> {
         strategy: GetStrategy,
         ctx: impl Future<Output = ()> + Unpin,
     ) -> Result<Connection<M>, Error<M::Error>> {
-        let config = &self.0.config;
         let mut ctx = ctx.fuse();
 
         let mut internals = self.0.internals.lock().await;
@@ -406,7 +478,7 @@ impl<M: Manager> Pool<M> {
         if strategy == GetStrategy::CachedOrNewConn && num_free > 0 {
             let c = internals.free_conns.swap_remove(0);
 
-            if c.expired(config.max_lifetime) {
+            if c.expired(internals.config.max_lifetime) {
                 c.close(&mut internals);
                 return Err(Error::BadConn);
             }
@@ -419,8 +491,8 @@ impl<M: Manager> Pool<M> {
             return Ok(pooled);
         }
 
-        if config.max_open > 0 {
-            if internals.num_open >= config.max_open {
+        if internals.config.max_open > 0 {
+            if internals.num_open >= internals.config.max_open {
                 let (req_sender, req_recv) = oneshot::channel();
                 let req_key = internals.next_request_id;
                 internals.next_request_id += 1;
@@ -441,8 +513,8 @@ impl<M: Manager> Pool<M> {
                     conn = req_recv.fuse() => {
                         match conn.unwrap() {
                             Ok(c) => {
-                                if c.expired(config.max_lifetime) {
-                                    let mut internals = self.0.internals.lock().await;
+                                let mut internals = self.0.internals.lock().await;
+                                if c.expired(internals.config.max_lifetime) {
                                     c.close(&mut internals);
                                     return Err(Error::BadConn);
                                 }
@@ -489,7 +561,7 @@ impl<M: Manager> Pool<M> {
     pub async fn state(&self) -> State {
         let internals = self.0.internals.lock().await;
         State {
-            max_open: self.0.config.max_open,
+            max_open: internals.config.max_open,
 
             connections: internals.num_open,
             in_use: internals.num_open - internals.free_conns.len() as u64,
@@ -556,8 +628,7 @@ async fn put_conn<M: Manager>(
         return maybe_open_new_connection(shared, internals).await;
     }
 
-    let config = &shared.config;
-    if config.max_open > 0 && internals.num_open > config.max_open {
+    if internals.config.max_open > 0 && internals.num_open > internals.config.max_open {
         return;
     }
 
@@ -578,12 +649,11 @@ async fn put_conn<M: Manager>(
 }
 
 fn put_idle_conn<M: Manager>(
-    shared: &Arc<SharedPool<M>>,
+    _shared: &Arc<SharedPool<M>>,
     mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
     conn: Conn<M::Connection, M::Error>,
 ) {
-    let config = &shared.config;
-    if config.max_idle > internals.free_conns.len() as u64 {
+    if internals.config.max_idle > internals.free_conns.len() as u64 {
         internals.free_conns.push(conn)
     } else {
         internals.max_idle_closed += 1;
@@ -592,13 +662,12 @@ fn put_idle_conn<M: Manager>(
 }
 
 async fn maybe_open_new_connection<M: Manager>(
-    shared: &Arc<SharedPool<M>>,
+    _shared: &Arc<SharedPool<M>>,
     mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
 ) {
     let mut num_requests = internals.conn_requests.len() as u64;
-    let config = &shared.config;
-    if config.max_open > 0 {
-        let num_can_open = config.max_open - internals.num_open;
+    if internals.config.max_open > 0 {
+        let num_can_open = internals.config.max_open - internals.num_open;
         if num_requests > num_can_open {
             num_requests = num_can_open;
         }
@@ -614,21 +683,28 @@ async fn maybe_open_new_connection<M: Manager>(
 
 async fn connection_cleaner<M: Manager>(
     shared: Weak<SharedPool<M>>,
+    mut cleaner_ch: Receiver<()>,
     clean_rate: Duration,
-    max_lifetime: Duration,
 ) {
     let mut interval = interval(clean_rate);
     interval.tick().await;
 
-    while clean_connection(&shared, max_lifetime).await {
-        interval.tick().await;
+    loop {
+        select! {
+            _ = interval.tick().fuse() => (),
+            r = cleaner_ch.next().fuse() => match r{
+                Some(()) => (),
+                None=> return
+            },
+        }
+
+        if !clean_connection(&shared).await {
+            return;
+        }
     }
 }
 
-async fn clean_connection<M: Manager>(
-    shared: &Weak<SharedPool<M>>,
-    max_lifetime: Duration,
-) -> bool {
+async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
     let shared = match shared.upgrade() {
         Some(shared) => shared,
         None => {
@@ -637,8 +713,13 @@ async fn clean_connection<M: Manager>(
         }
     };
 
-    let expired = Instant::now() - max_lifetime;
     let mut internals = shared.internals.lock().await;
+    if internals.num_open == 0 || internals.config.max_lifetime.is_none() {
+        internals.cleaner_ch.take();
+        return false;
+    }
+
+    let expired = Instant::now() - internals.config.max_lifetime.unwrap();
     let mut closing = vec![];
 
     let mut i = 0;

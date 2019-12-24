@@ -1,6 +1,14 @@
 
 # CHANGELOG
 
+## v0.4.0-alpha.4 2019-12-24
+
+#### Add
+    * `Pool.set_max_open_conns` - Sets the maximum number of connections managed by the pool.
+    * `Pool.set_max_idle_conns` - Sets the maximum idle connection count maintained by the pool.
+    * `Pool.set_conn_max_lifetime` - Sets the maximum lifetime of connections in the pool.
+
+
 ## v0.4.0-alpha.3 2019-12-24
 
 #### Update

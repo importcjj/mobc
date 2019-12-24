@@ -276,67 +276,6 @@ fn test_get_global_timeout() {
 }
 
 #[test]
-fn test_idle_timeout() {
-    static DROPPED: AtomicUsize = AtomicUsize::new(0);
-    let mut rt: Runtime = Runtime::new().unwrap();
-
-    struct Connection;
-
-    impl Drop for Connection {
-        fn drop(&mut self) {
-            DROPPED.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    struct Handler {
-        num: AtomicIsize,
-    };
-
-    impl Manager for Handler {
-        type Connection = Connection;
-        type Error = TestError;
-
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-            if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
-                Box::pin(futures::future::ok(Connection))
-            } else {
-                Box::pin(futures::future::err(TestError))
-            }
-        }
-
-        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
-        }
-    }
-    let handler = Handler {
-        num: AtomicIsize::new(5),
-    };
-    rt.block_on(async {
-        let pool = Pool::builder()
-            .max_open(5)
-            .max_idle(Some(2))
-            .max_lifetime(Some(Duration::from_secs(1)))
-            .clean_rate(Duration::from_secs(1))
-            .build(handler);
-
-        let mut v = vec![];
-        for _ in 0..5 {
-            v.push(pool.get().await.unwrap());
-        }
-
-        drop(v);
-
-        let conn = pool.get().await.unwrap();
-        delay_for(Duration::from_secs(3)).await;
-        assert_eq!(4, DROPPED.load(Ordering::SeqCst));
-        drop(conn);
-        assert_eq!(4, DROPPED.load(Ordering::SeqCst));
-        Ok::<(), Error<TestError>>(())
-    })
-    .unwrap();
-}
-
-#[test]
 fn test_idle_timeout_partial_use() {
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
     let mut rt: Runtime = Runtime::new().unwrap();
@@ -394,7 +333,63 @@ fn test_idle_timeout_partial_use() {
 }
 
 #[test]
-fn test_max_lifetime() {
+fn test_max_lifetime_lazy() {
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::ok(Connection))
+        }
+
+        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::ok(conn))
+        }
+    }
+    let handler = Handler;
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_open(5)
+            .max_lifetime(Some(Duration::from_secs(1)))
+            .get_timeout(Some(Duration::from_secs(1)))
+            .clean_rate(Duration::from_secs(1))
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        drop(v);
+        delay_for(Duration::from_secs(2)).await;
+
+        let mut v = vec![];
+        for _ in 0..4 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+        pool.get().await.unwrap();
+        delay_for(Duration::from_secs(2)).await;
+        assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_set_conn_max_lifetime() {
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
     let mut rt: Runtime = Runtime::new().unwrap();
 
@@ -445,11 +440,131 @@ fn test_max_lifetime() {
         drop(v);
 
         let conn = pool.get().await.unwrap();
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+
+        pool.set_conn_max_lifetime(Some(Duration::from_secs(1)))
+            .await;
         delay_for(Duration::from_secs(2)).await;
         assert_eq!(4, DROPPED.load(Ordering::SeqCst));
         drop(conn);
         delay_for(Duration::from_secs(2)).await;
         assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_set_max_open_conns() {
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    struct Handler;
+
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::ok(Connection))
+        }
+
+        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::ok(conn))
+        }
+    }
+
+    let handler = Handler;
+
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(5).max_idle(2).build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(0_u64, pool.state().await.idle);
+        assert_eq!(5_u64, pool.state().await.connections);
+        assert_eq!(0_u64, pool.state().await.max_idle_closed);
+        drop(v);
+
+        delay_for(Duration::from_secs(1)).await;
+        assert_eq!(2_u64, pool.state().await.idle);
+        assert_eq!(2_u64, pool.state().await.connections);
+        assert_eq!(3_u64, pool.state().await.max_idle_closed);
+        let pool = &pool;
+        let mut conns = vec![];
+        for _ in 0..3_u8 {
+            conns.push(pool.get().await.unwrap());
+        }
+
+        assert_eq!(3, conns.len());
+        delay_for(Duration::from_secs(1)).await;
+        assert_eq!(0_u64, pool.state().await.idle);
+        assert_eq!(3_u64, pool.state().await.connections);
+        assert_eq!(3_u64, pool.state().await.max_idle_closed);
+        drop(conns);
+        delay_for(Duration::from_secs(1)).await;
+        assert_eq!(2_u64, pool.state().await.idle);
+        assert_eq!(2_u64, pool.state().await.connections);
+        assert_eq!(4_u64, pool.state().await.max_idle_closed);
+
+        pool.set_max_open_conns(1).await;
+        assert_eq!(1_u64, pool.state().await.max_open);
+        assert_eq!(1_u64, pool.state().await.idle);
+        assert_eq!(1_u64, pool.state().await.connections);
+        assert_eq!(5_u64, pool.state().await.max_idle_closed);
+
+        pool.set_max_open_conns(10).await;
+        assert_eq!(10_u64, pool.state().await.max_open);
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_set_max_idle_conns() {
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    struct Handler;
+
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::ok(Connection))
+        }
+
+        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
+            Box::pin(futures::future::ok(conn))
+        }
+    }
+
+    let handler = Handler;
+
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(5).max_idle(5).build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(0_u64, pool.state().await.idle);
+        assert_eq!(5_u64, pool.state().await.connections);
+        assert_eq!(0_u64, pool.state().await.max_idle_closed);
+        drop(v);
+
+        delay_for(Duration::from_secs(1)).await;
+        pool.set_max_idle_conns(2).await;
+        assert_eq!(5_u64, pool.state().await.max_open);
+        assert_eq!(2_u64, pool.state().await.idle);
+        assert_eq!(2_u64, pool.state().await.connections);
+        assert_eq!(3_u64, pool.state().await.max_idle_closed);
+
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
@@ -479,7 +594,7 @@ fn test_min_idle() {
     let handler = Handler;
 
     rt.block_on(async {
-        let pool = Pool::builder().max_open(5).max_idle(Some(2)).build(handler);
+        let pool = Pool::builder().max_open(5).max_idle(2).build(handler);
 
         let mut v = vec![];
         for _ in 0..5 {
@@ -546,7 +661,7 @@ fn test_conns_drop_on_pool_drop() {
     rt.block_on(async {
         let pool = Pool::builder()
             .max_lifetime(Some(Duration::from_secs(10)))
-            .max_idle(Some(10))
+            .max_idle(10)
             .max_open(10)
             .build(handler);
 

@@ -15,6 +15,36 @@ pub(crate) struct Config {
     pub get_timeout: Option<Duration>,
 }
 
+impl Config {
+    pub fn split(self) -> (ShareConfig, InternalConfig) {
+        let share = ShareConfig {
+            clean_rate: self.clean_rate,
+            max_bad_conn_retries: self.max_bad_conn_retries,
+            get_timeout: self.get_timeout,
+        };
+
+        let internal = InternalConfig {
+            max_open: self.max_open,
+            max_idle: self.max_idle,
+            max_lifetime: self.max_lifetime,
+        };
+
+        (share, internal)
+    }
+}
+
+pub(crate) struct ShareConfig {
+    pub clean_rate: Duration,
+    pub max_bad_conn_retries: u32,
+    pub get_timeout: Option<Duration>,
+}
+
+pub(crate) struct InternalConfig {
+    pub max_open: u64,
+    pub max_idle: u64,
+    pub max_lifetime: Option<Duration>,
+}
+
 /// A builder for a connection pool.
 pub struct Builder<M> {
     max_open: u64,
@@ -62,15 +92,14 @@ impl<M: Manager> Builder<M> {
     /// at all times, while respecting the value of `max_open`.
     ///
     /// Defaults to 2.
-    pub fn max_idle(mut self, max_idle: Option<u64>) -> Self {
-        self.max_idle = max_idle;
+    pub fn max_idle(mut self, max_idle: u64) -> Self {
+        self.max_idle = Some(max_idle);
         self
     }
 
     /// Sets the maximum lifetime of connections in the pool.
     ///
-    /// If a connection reaches its maximum lifetime while checked out it will
-    /// be closed when it is returned to the pool.
+    /// Expired connections may be closed lazily before reuse.
     ///
     /// None meas reuse forever.
     /// Defaults to None.
