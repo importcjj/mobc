@@ -1,7 +1,12 @@
 
 # CHANGELOG
 
-## v0.4.0-alpha.1 2019-12-23
+## v0.4.0-alpha.3 2019-12-24
+
+#### Update
+* When specifying a timeout configuration, `None` means that a get connection will never timeout.
+
+## v0.4.0-alpha.2 2019-12-23
 
 #### Fixes
 * Fix docs
