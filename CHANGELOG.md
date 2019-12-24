@@ -1,6 +1,11 @@
 
 # CHANGELOG
 
+## v0.4.0 2019-12-24
+
+#### Fix
+* Tix tests
+
 ## v0.4.0-alpha.4 2019-12-24
 
 #### Add
