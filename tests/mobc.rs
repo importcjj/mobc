@@ -373,6 +373,7 @@ fn test_max_lifetime_lazy() {
             v.push(pool.get().await.unwrap());
         }
         drop(v);
+        delay_for(Duration::from_secs(2)).await;
 
         let mut v = vec![];
         for _ in 0..4 {
