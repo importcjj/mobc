@@ -349,6 +349,7 @@ impl<M: Manager> Pool<M> {
         }
 
         if max_lifetime.is_some() && internals.num_open > 0 && internals.cleaner_ch.is_none() {
+            log::debug!("run connection cleaner");
             let shared1 = Arc::downgrade(&self.0);
             let clean_rate = self.0.config.clean_rate;
             let (cleaner_ch_sender, cleaner_ch) = mpsc::channel(1);
@@ -708,10 +709,12 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
     let shared = match shared.upgrade() {
         Some(shared) => shared,
         None => {
-            log::debug!("failed to start connection_cleaner");
+            log::debug!("Failed to clean connections");
             return false;
         }
     };
+
+    log::debug!("Clean connections");
 
     let mut internals = shared.internals.lock().await;
     if internals.num_open == 0 || internals.config.max_lifetime.is_none() {
@@ -734,6 +737,7 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
         }
 
         if internals.free_conns[i].created_at < expired {
+            println!("xxxx");
             let c = internals.free_conns.swap_remove(i);
             closing.push(c);
             continue;

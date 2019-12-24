@@ -373,7 +373,6 @@ fn test_max_lifetime_lazy() {
             v.push(pool.get().await.unwrap());
         }
         drop(v);
-        delay_for(Duration::from_secs(2)).await;
 
         let mut v = vec![];
         for _ in 0..4 {
@@ -390,6 +389,7 @@ fn test_max_lifetime_lazy() {
 
 #[test]
 fn test_set_conn_max_lifetime() {
+    env_logger::init();
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
     let mut rt: Runtime = Runtime::new().unwrap();
 
@@ -427,6 +427,7 @@ fn test_set_conn_max_lifetime() {
     rt.block_on(async {
         let pool = Pool::builder()
             .max_open(5)
+            .max_idle(5)
             .max_lifetime(Some(Duration::from_secs(1)))
             .get_timeout(Some(Duration::from_secs(1)))
             .clean_rate(Duration::from_secs(1))
@@ -441,14 +442,18 @@ fn test_set_conn_max_lifetime() {
 
         let conn = pool.get().await.unwrap();
         assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+        delay_for(Duration::from_secs(2)).await;
 
         pool.set_conn_max_lifetime(Some(Duration::from_secs(1)))
             .await;
-        delay_for(Duration::from_secs(2)).await;
+        delay_for(Duration::from_secs(4)).await;
         assert_eq!(4, DROPPED.load(Ordering::SeqCst));
         drop(conn);
         delay_for(Duration::from_secs(2)).await;
         assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+        
+
+        assert_eq!(5_u64, pool.state().await.max_lifetime_closed);
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
