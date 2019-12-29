@@ -10,12 +10,17 @@ A generic connection pool with async/await support.
 
 **Note: mobc requires at least Rust 1.39.**
 
+
+
 ## Features
 
 * Support async/.await syntax.
 * Support both `tokio` and `async-std` runtimes.
 * Simple and fast customization
 
+Backend                                                                | Adaptor Crate
+---------------------------------------------------------------------- | -------------
+[tokio-postgres](https://github.com/sfackler/rust-postgres)            | [mobc-postgres](https://github.com/importcjj/mobc-postgres)
 
 ## Usage
 ```toml
