@@ -1,4 +1,13 @@
-pub use spawn::spawn;
+use std::future::Future;
+
+/// Spawns a new asynchronous task.
+pub fn spawn<T>(task: T)
+where
+    T: Future + Send + 'static,
+    T::Output: Send + 'static,
+{
+    spawn::spawn(task);
+}
 
 #[cfg(all(
     feature = "tokio",

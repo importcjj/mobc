@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -10,7 +10,6 @@ repository = "https://github.com/importcjj/mobc"
 categories = ["asynchronous", "network-programming"]
 keywords = ["database", "pool", "async", "await"]
 documentation = "https://docs.rs/mobc/latest/mobc/"
-changelog = "https://github.com/importcjj/mobc/blob/master/CHANGELOG.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]

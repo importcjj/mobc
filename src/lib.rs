@@ -83,7 +83,7 @@ use futures::select;
 use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
-use spawn::spawn;
+pub use spawn::spawn;
 use std::collections::HashMap;
 use std::error;
 use std::fmt;
@@ -737,7 +737,6 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
         }
 
         if internals.free_conns[i].created_at < expired {
-            println!("xxxx");
             let c = internals.free_conns.swap_remove(i);
             closing.push(c);
             continue;

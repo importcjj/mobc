@@ -37,7 +37,7 @@ where
         let tls = self.tls.clone();
         let connect_fut = async move { config.connect(tls).await };
         Box::pin(connect_fut.map_ok(move |(client, conn)| {
-            tokio::spawn(conn);
+            mobc::spawn(conn);
             client
         }))
     }
