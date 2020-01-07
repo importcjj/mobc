@@ -1,6 +1,11 @@
 
 # CHANGELOG
 
+## v0.5.1 2020-01-07
+* Switch to `async-trait`
+* Switch to `futures-timer`
+* Add more examples
+
 ## v0.4.1 2019-12-29
 
 #### Add
