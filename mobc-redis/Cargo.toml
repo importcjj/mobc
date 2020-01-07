@@ -7,5 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-mobc = { version = "0.5", path = "../.." }
+mobc = { version = "0.5", path = ".." }
 redis = { version = "0.13.1-alpha.0", git = "https://github.com/mitsuhiko/redis-rs" }
+
+[dev-dependencies]
+actix-web = "2.0.0"
+actix-rt = "1.0"
+actix-http = "1.0"

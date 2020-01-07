@@ -1,25 +1,16 @@
 use actix_web::{web, App, HttpServer, Responder};
-use mobc_redis::RedisConnectionManager;
-use mobc_redis::{redis, Connection};
+use mobc_foo::FooManager;
 
-type Pool = mobc::Pool<RedisConnectionManager>;
+type Pool = mobc::Pool<FooManager>;
 
 async fn ping(pool: web::Data<Pool>) -> impl Responder {
-    let mut conn = pool.get().await.unwrap();
-    match redis::cmd("PING")
-        .query_async::<_, String>(&mut conn as &mut Connection)
-        .await
-    {
-        Ok(pong) => pong,
-        Err(e) => format!("Server error: {:?}", e),
-    }
+    let conn = pool.get().await.unwrap();
+    conn.query().await
 }
 
 #[actix_rt::main]
 async fn main() {
-    let client = redis::Client::open("redis://127.0.0.1/").unwrap();
-    let manager = RedisConnectionManager::new(client);
-    let pool = Pool::builder().max_open(100).build(manager);
+    let pool = Pool::builder().max_open(100).build(FooManager);
 
     HttpServer::new(move || {
         App::new()
