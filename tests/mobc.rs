@@ -1,9 +1,9 @@
+use mobc::async_trait;
 use mobc::delay_for;
 use mobc::runtime::Runtime;
 use mobc::Error;
 use mobc::Manager;
 use mobc::Pool;
-use mobc::ResultFuture;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -15,16 +15,17 @@ struct FakeConnection(bool);
 
 struct OkManager;
 
+#[async_trait]
 impl Manager for OkManager {
     type Connection = FakeConnection;
     type Error = TestError;
 
-    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(FakeConnection(true)))
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        Ok(FakeConnection(true))
     }
 
-    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(conn))
+    async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+        Ok(conn)
     }
 }
 
@@ -32,20 +33,21 @@ struct NthConnectFailManager {
     num: AtomicIsize,
 }
 
+#[async_trait]
 impl Manager for NthConnectFailManager {
     type Connection = FakeConnection;
     type Error = TestError;
 
-    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
-            Box::pin(futures::future::ok(FakeConnection(true)))
+            Ok(FakeConnection(true))
         } else {
-            Box::pin(futures::future::err(TestError))
+            Err(TestError)
         }
     }
 
-    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(conn))
+    async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+        Ok(conn)
     }
 }
 
@@ -168,16 +170,17 @@ fn test_drop_on_broken() {
 
     struct Handler;
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(Connection))
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
         }
 
-        fn check(&self, _conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::err(TestError))
+        async fn check(&self, _conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Err(TestError)
         }
     }
     let handler = Handler;
@@ -208,16 +211,17 @@ fn test_invalid_conn() {
 
     struct Handler;
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(Connection))
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
         }
 
-        fn check(&self, _conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::err(TestError))
+        async fn check(&self, _conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Err(TestError)
         }
     }
 
@@ -292,20 +296,21 @@ fn test_idle_timeout_partial_use() {
         num: AtomicIsize,
     };
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
             if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
-                Box::pin(futures::future::ok(Connection))
+                Ok(Connection)
             } else {
-                Box::pin(futures::future::err(TestError))
+                Err(TestError)
             }
         }
 
-        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
         }
     }
     let handler = Handler {
@@ -347,16 +352,17 @@ fn test_max_lifetime_lazy() {
 
     struct Handler;
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(Connection))
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
         }
 
-        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
         }
     }
     let handler = Handler;
@@ -406,20 +412,21 @@ fn test_set_conn_max_lifetime() {
         num: AtomicIsize,
     };
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
             if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
-                Box::pin(futures::future::ok(Connection))
+                Ok(Connection)
             } else {
-                Box::pin(futures::future::err(TestError))
+                Err(TestError)
             }
         }
 
-        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
         }
     }
     let handler = Handler {
@@ -452,7 +459,6 @@ fn test_set_conn_max_lifetime() {
         drop(conn);
         delay_for(Duration::from_secs(2)).await;
         assert_eq!(5, DROPPED.load(Ordering::SeqCst));
-        
 
         assert_eq!(5_u64, pool.state().await.max_lifetime_closed);
         Ok::<(), Error<TestError>>(())
@@ -468,16 +474,17 @@ fn test_set_max_open_conns() {
 
     struct Handler;
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(Connection))
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
         }
 
-        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
         }
     }
 
@@ -537,16 +544,17 @@ fn test_set_max_idle_conns() {
 
     struct Handler;
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(Connection))
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
         }
 
-        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
         }
     }
 
@@ -584,16 +592,17 @@ fn test_min_idle() {
 
     struct Handler;
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(Connection))
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
         }
 
-        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
         }
     }
 
@@ -651,16 +660,17 @@ fn test_conns_drop_on_pool_drop() {
 
     struct Handler;
 
+    #[async_trait]
     impl Manager for Handler {
         type Connection = Connection;
         type Error = TestError;
 
-        fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(Connection))
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
         }
 
-        fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-            Box::pin(futures::future::ok(conn))
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
         }
     }
     let handler = Handler;

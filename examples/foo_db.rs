@@ -1,30 +1,6 @@
-use mobc::{Manager, Pool, ResultFuture};
-
-#[derive(Debug)]
-struct FooError;
-
-struct FooConnection;
-
-impl FooConnection {
-    async fn query(&self) -> String {
-        "nori".to_string()
-    }
-}
-
-struct FooManager;
-
-impl Manager for FooManager {
-    type Connection = FooConnection;
-    type Error = FooError;
-
-    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(FooConnection))
-    }
-
-    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-        Box::pin(futures::future::ok(conn))
-    }
-}
+use mobc::Pool;
+use mobc_foo::FooManager;
+use std::time::Instant;
 
 #[tokio::main]
 async fn main() {
@@ -32,6 +8,7 @@ async fn main() {
     let num: usize = 10000;
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
+    let now = Instant::now();
     for _ in 0..num {
         let pool = pool.clone();
         let mut tx = tx.clone();
@@ -46,4 +23,6 @@ async fn main() {
     for _ in 0..num {
         rx.recv().await.unwrap();
     }
+
+    println!("cost: {:?}", now.elapsed());
 }

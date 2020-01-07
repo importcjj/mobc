@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -13,19 +13,29 @@ documentation = "https://docs.rs/mobc/latest/mobc/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["tokio"]
+default = ["tokio", "unstable"]
 unstable = []
 
 [dependencies]
 futures = "0.3"
 tokio = { version = "0.2.6", features=["rt-core", "time"], optional = true }
 async-std = { version = "1.0", features=["unstable"], optional = true }
+async-trait = "0.1.17"
+futures-timer = "2.0.2"
 log = "0.4"
 
 [dev-dependencies]
 tokio = { version = "0.2", features = ["full"] }
 tokio-postgres = "=0.5.0-alpha.2"
+async-std = { version = "1.0", features = ["attributes"] }
 env_logger = "0.7"
+mobc-redis = { path = "examples/mobc-redis" }
+mobc-foo = { path = "examples/mobc-foo" }
+tide = "0.5"
+
+actix-web = "2.0.0"
+actix-rt = "1.0"
+actix-http = "1.0"
 
 [package.metadata.docs.rs]
 features = ["tokio", "unstable"]

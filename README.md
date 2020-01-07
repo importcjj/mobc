@@ -2,7 +2,7 @@
 
 A generic connection pool with async/await support.
 
-[![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=master)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-0.4.1-%23dea584)](https://crates.io/crates/mobc)
+[![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=master)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-0.5.0-%23dea584)](https://crates.io/crates/mobc)
 
 [Documentation](https://docs.rs/mobc/latest/mobc/)
 
@@ -10,76 +10,98 @@ A generic connection pool with async/await support.
 
 **Note: mobc requires at least Rust 1.39.**
 
+## Usage
+
+```
+[dependencies]
+mobc = "0.5"
+
+# For async-std runtime
+# mobc = { version = "0.5", features = ["async-std"] }
+```
 
 
 ## Features
 
 * Support async/.await syntax.
 * Support both `tokio` and `async-std` runtimes.
-* Simple and fast customization
+* Simple and fast customization.
+* Connection pool configuration can be adjusted dynamically.
 
-Backend                                                                | Adaptor Crate
----------------------------------------------------------------------- | -------------
-[tokio-postgres](https://github.com/sfackler/rust-postgres)            | [mobc-postgres](https://github.com/importcjj/mobc-postgres)
+| Backend                                                     | Adaptor Crate                                               |
+| ----------------------------------------------------------- | ----------------------------------------------------------- |
+| [tokio-postgres](https://github.com/sfackler/rust-postgres) | [mobc-postgres](https://github.com/importcjj/mobc-postgres) |
 
-## Usage
-```toml
-[dependencies]
-mobc = "0.4"
-```
+## Configures
+
+#### max_open
+Sets the maximum number of connections managed by the pool.
+>0 means unlimited, defaults to 10.
+
+#### min_idle
+Sets the maximum idle connection count maintained by the pool. The pool will maintain at most this many idle connections at all times, while respecting the value of max_open.
+
+#### max_lifetime
+Sets the maximum lifetime of connections in the pool. Expired connections may be closed lazily before reuse.
+>None meas reuse forever, defaults to None.
+
+#### get_timeout
+Sets the get timeout used by the pool. Calls to Pool::get will wait this long for a connection to become available before returning an error. 
+>None meas never timeout, defaults to 30 seconds.
+
+
+## Variable
+
+Some of the connection pool configurations can be adjusted dynamically. Each connection pool instance has the following methods:
+
+* set_max_open_conns
+* set_max_idle_conns
+* set_conn_max_lifetime
+
+## Stats
+* max_open - Maximum number of open connections to the database.
+* connections - The number of established connections both in use and idle.
+* in_use - The number of connections currently in use.
+* idle - The number of idle connections.
+* wait_count - The total number of connections waited for.
+* wait_duration - The total time blocked waiting for a new connection.
+* max_idle_closed - The total number of connections closed due to max_idle.
+* max_lifetime_closed - The total number of connections closed due to max_lifetime.
+
+## compatibility
+Because tokio is not compatible with other runtimes, such as async-std. So a database driver written with tokio cannot run in the async-std runtime. For example, you can't use redis-rs in tide because it uses tokio, so the connection pool which bases on redis-res can't be used in tide either.
 
 ## Example
 
 Using an imaginary "foodb" database.
 
 ```rust
-use mobc::{Manager, Pool, ResultFuture};
+use mobc::{async_trait, Manager};
 
 #[derive(Debug)]
-struct FooError;
+pub struct FooError;
 
-struct FooConnection;
+pub struct FooConnection;
 
 impl FooConnection {
-   async fn query(&self) -> String {
-       "nori".to_string()
-   }
+    pub async fn query(&self) -> String {
+        "PONG".to_string()
+    }
 }
 
-struct FooManager;
+pub struct FooManager;
 
+#[async_trait]
 impl Manager for FooManager {
-   type Connection = FooConnection;
-   type Error = FooError;
+    type Connection = FooConnection;
+    type Error = FooError;
 
-   fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-       Box::pin(futures::future::ok(FooConnection))
-   }
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        Ok(FooConnection)
+    }
 
-   fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-       Box::pin(futures::future::ok(conn))
-   }
-}
-
-#[tokio::main]
-async fn main() {
-   let pool = Pool::builder().max_open(15).build(FooManager);
-   let num: usize = 10000;
-   let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
-
-   for _ in 0..num {
-       let pool = pool.clone();
-       let mut tx = tx.clone();
-       tokio::spawn(async move {
-           let conn = pool.get().await.unwrap();
-           let name = conn.query().await;
-           assert_eq!(name, "nori".to_string());
-           tx.send(()).await.unwrap();
-       });
-   }
-
-   for _ in 0..num {
-       rx.recv().await.unwrap();
-   }
+    async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+        Ok(conn)
+    }
 }
 ```

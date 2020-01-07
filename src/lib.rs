@@ -6,7 +6,7 @@
 //! database, handing them out for repeated use.
 //!
 //! mobc is agnostic to the connection type it is managing. Implementors of the
-//! `ConnectionManager` trait provide the database-specific logic to create and
+//! `Manager` trait provide the database-specific logic to create and
 //! check the health of connections.
 //!
 //! # Example
@@ -14,7 +14,7 @@
 //! Using an imaginary "foodb" database.
 //!
 //! ```rust
-//!use mobc::{Manager, Pool, ResultFuture};
+//!use mobc::{Manager, Pool, async_trait};
 //!
 //!#[derive(Debug)]
 //!struct FooError;
@@ -29,16 +29,17 @@
 //!
 //!struct FooManager;
 //!
+//!#[async_trait]
 //!impl Manager for FooManager {
 //!    type Connection = FooConnection;
 //!    type Error = FooError;
 //!
-//!    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error> {
-//!        Box::pin(futures::future::ok(FooConnection))
+//!    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+//!        Ok(FooConnection)
 //!    }
 //!
-//!    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error> {
-//!        Box::pin(futures::future::ok(conn))
+//!    async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+//!        Ok(conn)
 //!    }
 //!}
 //!
@@ -74,6 +75,7 @@ pub mod runtime;
 mod spawn;
 mod time;
 
+pub use async_trait::async_trait;
 pub use config::Builder;
 use config::{Config, InternalConfig, ShareConfig};
 use futures::channel::mpsc::{self, Receiver, Sender};
@@ -89,10 +91,8 @@ use std::error;
 use std::fmt;
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
-use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
-#[doc(hidden)]
 pub use time::{delay_for, delay_until, interval};
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
@@ -152,9 +152,7 @@ where
     }
 }
 
-/// Result Future `Pin<Box<dyn Future<Output = Result<T, E>> + Send>>`
-pub type ResultFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
-
+#[async_trait]
 /// A trait which provides connection-specific functionality.
 pub trait Manager: Send + Sync + 'static {
     /// The connection type this manager deals with.
@@ -172,12 +170,12 @@ pub trait Manager: Send + Sync + 'static {
     }
 
     /// Attempts to create a new connection.
-    fn connect(&self) -> ResultFuture<Self::Connection, Self::Error>;
+    async fn connect(&self) -> Result<Self::Connection, Self::Error>;
     /// Determines if the connection is still connected to the database.
     ///
     /// A standard implementation would check if a simple query like `SELECT 1`
     /// succeeds.
-    fn check(&self, conn: Self::Connection) -> ResultFuture<Self::Connection, Self::Error>;
+    async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error>;
 }
 
 struct SharedPool<M: Manager> {
