@@ -12,7 +12,7 @@ A generic connection pool with async/await support.
 
 ## Usage
 
-```
+```toml
 [dependencies]
 mobc = "0.5"
 
@@ -68,10 +68,12 @@ Some of the connection pool configurations can be adjusted dynamically. Each con
 * max_idle_closed - The total number of connections closed due to max_idle.
 * max_lifetime_closed - The total number of connections closed due to max_lifetime.
 
-## compatibility
+## Compatibility
 Because tokio is not compatible with other runtimes, such as async-std. So a database driver written with tokio cannot run in the async-std runtime. For example, you can't use redis-rs in tide because it uses tokio, so the connection pool which bases on redis-res can't be used in tide either.
 
-## Example
+## Examples
+
+More [examples](https://github.com/importcjj/mobc/tree/master/mobc-foo/examples)
 
 Using an imaginary "foodb" database.
 
