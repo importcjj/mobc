@@ -66,11 +66,14 @@
 //!}
 //!
 //! ```
+
+#![cfg_attr(feature = "docs", feature(doc_cfg))]
 #![warn(missing_docs)]
 #![recursion_limit = "256"]
 mod config;
+
 #[cfg(feature = "unstable")]
-#[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+#[cfg_attr(feature = "docs", doc(cfg(unstable)))]
 pub mod runtime;
 mod spawn;
 mod time;
@@ -93,6 +96,7 @@ use std::future::Future;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
+#[doc(hidden)]
 pub use time::{delay_for, delay_until, interval};
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;

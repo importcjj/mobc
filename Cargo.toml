@@ -30,4 +30,5 @@ tokio-postgres = "=0.5.0-alpha.2"
 env_logger = "0.7"
 
 [package.metadata.docs.rs]
-features = ["tokio", "unstable"]
+features = ["unstable"]
+rustdoc-args = ["--cfg", "feature=\"unstable\""]
