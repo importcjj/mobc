@@ -1,6 +1,11 @@
 
 # CHANGELOG
 
+## v0.5.2 2020-01-15
+* Do health check for the connection before return it.
+* Add configure item `health_check`.
+* Impl `Debug` for State.
+
 ## v0.5.1 2020-01-07
 * Switch to `async-trait`
 * Switch to `futures-timer`

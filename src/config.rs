@@ -13,6 +13,7 @@ pub(crate) struct Config {
     pub clean_rate: Duration,
     pub max_bad_conn_retries: u32,
     pub get_timeout: Option<Duration>,
+    pub health_check: bool,
 }
 
 impl Config {
@@ -21,6 +22,7 @@ impl Config {
             clean_rate: self.clean_rate,
             max_bad_conn_retries: self.max_bad_conn_retries,
             get_timeout: self.get_timeout,
+            health_check: self.health_check,
         };
 
         let internal = InternalConfig {
@@ -37,6 +39,7 @@ pub(crate) struct ShareConfig {
     pub clean_rate: Duration,
     pub max_bad_conn_retries: u32,
     pub get_timeout: Option<Duration>,
+    pub health_check: bool,
 }
 
 pub(crate) struct InternalConfig {
@@ -53,6 +56,7 @@ pub struct Builder<M> {
     clean_rate: Duration,
     max_bad_conn_retries: u32,
     get_timeout: Option<Duration>,
+    health_check: bool,
     _keep: PhantomData<M>,
 }
 
@@ -66,6 +70,7 @@ impl<M> Default for Builder<M> {
             max_bad_conn_retries: DEFAULT_BAD_CONN_RETRIES,
             get_timeout: Some(Duration::from_secs(30)),
             _keep: PhantomData,
+            health_check: true,
         }
     }
 }
@@ -94,6 +99,15 @@ impl<M: Manager> Builder<M> {
     /// Defaults to 2.
     pub fn max_idle(mut self, max_idle: u64) -> Self {
         self.max_idle = Some(max_idle);
+        self
+    }
+
+    /// If true, the health of a connection will be verified via a call to
+    /// `Manager::check` before it is checked out of the pool.
+    ///
+    /// Defaults to true.
+    pub fn test_on_check_out(mut self, health_check: bool) -> Builder<M> {
+        self.health_check = health_check;
         self
     }
 
@@ -178,6 +192,7 @@ impl<M: Manager> Builder<M> {
             get_timeout: self.get_timeout,
             clean_rate: self.clean_rate,
             max_bad_conn_retries: self.max_bad_conn_retries,
+            health_check: self.health_check,
         };
 
         Pool::new_inner(manager, config)
