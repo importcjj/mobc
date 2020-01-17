@@ -25,14 +25,16 @@ mobc = "0.5"
 
 ## Features
 
-* Support async/.await syntax.
-* Support both `tokio` and `async-std` runtimes.
-* Simple and fast customization.
-* Connection pool configuration can be adjusted dynamically.
+* Support async/.await syntax
+* Support both `tokio` and `async-std`
+* High performance
+* Easy to customize
+* Dynamic configuration
 
 | Backend                                                     | Adaptor Crate                                               |
 | ----------------------------------------------------------- | ----------------------------------------------------------- |
 | [tokio-postgres](https://github.com/sfackler/rust-postgres) | [mobc-postgres](https://github.com/importcjj/mobc-postgres) |
+| [redis](https://github.com/mitsuhiko/redis-rs) | [mobc-redis](https://github.com/importcjj/mobc-redis) |
 
 ## Configures
 
