@@ -74,7 +74,6 @@ mod runtime {
 mod runtime {
     use super::*;
     use async_std::task;
-    use async_std::task::JoinHandle;
     pub struct Runtime(TaskExecutor);
 
     impl Runtime {

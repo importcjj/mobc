@@ -1,10 +1,12 @@
 
 # CHANGELOG
 
-## v0.5.2 2020-01-15
+## v0.5.2 2020-01-17
 * Do health check for the connection before return it.
 * Add configure item `health_check`.
-* Impl `Debug` for State.
+* Impl Debug for State.
+* Add method is_brand_new to Connection, which returns true if the connection is newly established.
+* Skip health check of those new connections.
 
 ## v0.5.1 2020-01-07
 * Switch to `async-trait`

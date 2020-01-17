@@ -187,8 +187,9 @@ fn test_drop_on_broken() {
     rt.block_on(async {
         let pool = Pool::new(handler);
 
-        assert!(pool.get().await.is_err());
+        assert!(pool.get().await.is_ok());
         delay_for(Duration::from_secs(1)).await;
+        assert!(pool.get().await.is_err());
         assert!(DROPPED.load(Ordering::SeqCst));
         Ok::<(), Error<TestError>>(())
     })
@@ -228,8 +229,9 @@ fn test_invalid_conn() {
     rt.block_on(async {
         let pool = Pool::builder().max_open(1).build(Handler);
 
-        assert!(pool.get().await.is_err());
+        assert!(pool.get().await.is_ok());
         delay_for(Duration::from_secs(1)).await;
+        assert!(pool.get().await.is_err());
         assert!(DROPPED.load(Ordering::SeqCst));
         assert_eq!(1_u64, pool.state().await.connections);
         Ok::<(), Error<TestError>>(())
@@ -697,6 +699,23 @@ fn test_conns_drop_on_pool_drop() {
         }
 
         panic!("timed out waiting for connections to drop");
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_is_brand_new() {
+    let mut rt = Runtime::new().unwrap();
+    let handler = OkManager;
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(1).build(handler);
+
+        let conn = pool.get().await.ok().unwrap();
+        assert!(conn.is_brand_new());
+        drop(conn);
+        let conn = pool.get().await.ok().unwrap();
+        assert!(!conn.is_brand_new());
+        Ok::<(), Error<TestError>>(())
     })
     .unwrap();
 }

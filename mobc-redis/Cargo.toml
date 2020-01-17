@@ -8,9 +8,10 @@ edition = "2018"
 
 [dependencies]
 mobc = { version = "0.5", path = ".." }
-redis = { version = "0.13.1-alpha.0", git = "https://github.com/mitsuhiko/redis-rs" }
+redis = "0.14"
 
 [dev-dependencies]
 actix-web = "2.0.0"
 actix-rt = "1.0"
 actix-http = "1.0"
+tokio = { version = "0.2", features = ["full"]}

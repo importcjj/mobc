@@ -7,12 +7,12 @@ use std::time::Instant;
 async fn main() {
     let client = redis::Client::open("redis://127.0.0.1/").unwrap();
     let manager = RedisConnectionManager::new(client);
-    let pool = Pool::builder().max_open(100).build(manager);
+    let pool = Pool::builder().max_open(20).build(manager);
 
     const MAX: usize = 5000;
 
     let now = Instant::now();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(16);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(5000);
     for i in 0..MAX {
         let pool = pool.clone();
         let mut tx_c = tx.clone();

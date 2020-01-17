@@ -20,6 +20,7 @@ mod time {
         }
     }
 
+    /// Creates new Interval that yields with interval of duration.
     pub fn interval(duration: Duration) -> Interval {
         Interval {
             timer: Some(Delay::new(Duration::from_secs(0))),
@@ -27,10 +28,12 @@ mod time {
         }
     }
 
+    /// Wait until duration has elapsed.
     pub fn delay_for(duration: Duration) -> Delay {
         Delay::new(duration)
     }
 
+    /// Wait until deadline is reached.
     pub fn delay_until(deadline: Instant) -> Delay {
         let mut delay = Delay::new(Duration::from_secs(1));
         delay.reset(deadline);
