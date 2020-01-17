@@ -477,10 +477,13 @@ impl<M: Manager> Pool<M> {
         ctx: impl Future<Output = ()> + Unpin,
     ) -> Result<Connection<M>, Error<M::Error>> {
         let mut c = self.inner_get_ctx(strategy, ctx).await?;
-        let mut internals = self.0.internals.lock().await;
-        if !c.brand_new && c.expired(internals.config.max_lifetime) {
-            c.close(&mut internals);
-            return Err(Error::BadConn);
+
+        if !c.brand_new {
+            let mut internals = self.0.internals.lock().await;
+            if c.expired(internals.config.max_lifetime) {
+                c.close(&mut internals);
+                return Err(Error::BadConn);
+            }
         }
 
         if !c.brand_new {
@@ -505,13 +508,14 @@ impl<M: Manager> Pool<M> {
     ) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
         let mut ctx = ctx.fuse();
 
-        let mut internals = self.0.internals.lock().await;
+        
         select! {
             () = ctx => {
                 return Err(Error::Timeout)
             }
             default => ()
         }
+        let mut internals = self.0.internals.lock().await;
         let num_free = internals.free_conns.len();
         if strategy == GetStrategy::CachedOrNewConn && num_free > 0 {
             let c = internals.free_conns.swap_remove(0);
