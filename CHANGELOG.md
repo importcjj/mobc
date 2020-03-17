@@ -1,12 +1,16 @@
 
 # CHANGELOG
 
+## v0.5.4 2020-03-17
+
+* Do not run the `check` if `health_check` is false.
+
 ## v0.5.3 2020-01-17
 
 * Fix performance regression.
 
 
-## v0.5.2 2020-01-17
+## v0.5.2 2020-01-17
 * Do health check for the connection before return it.
 * Add configure item `health_check`.
 * Impl Debug for State.
