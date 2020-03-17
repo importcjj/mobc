@@ -486,7 +486,7 @@ impl<M: Manager> Pool<M> {
             }
         }
 
-        if !c.brand_new {
+        if !c.brand_new && self.0.config.health_check {
             let raw = c.raw.take().unwrap();
             match self.0.manager.check(raw).await {
                 Ok(raw) => c.raw = Some(raw),
