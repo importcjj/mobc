@@ -10,6 +10,7 @@ pub(crate) struct Config {
     pub max_open: u64,
     pub max_idle: u64,
     pub max_lifetime: Option<Duration>,
+    pub max_idle_lifetime: Option<Duration>,
     pub clean_rate: Duration,
     pub max_bad_conn_retries: u32,
     pub get_timeout: Option<Duration>,
@@ -29,6 +30,7 @@ impl Config {
             max_open: self.max_open,
             max_idle: self.max_idle,
             max_lifetime: self.max_lifetime,
+            max_idle_lifetime: self.max_idle_lifetime,
         };
 
         (share, internal)
@@ -46,6 +48,7 @@ pub(crate) struct InternalConfig {
     pub max_open: u64,
     pub max_idle: u64,
     pub max_lifetime: Option<Duration>,
+    pub max_idle_lifetime: Option<Duration>,
 }
 
 /// A builder for a connection pool.
@@ -53,6 +56,7 @@ pub struct Builder<M> {
     max_open: u64,
     max_idle: Option<u64>,
     max_lifetime: Option<Duration>,
+    max_idle_lifetime: Option<Duration>,
     clean_rate: Duration,
     max_bad_conn_retries: u32,
     get_timeout: Option<Duration>,
@@ -66,6 +70,7 @@ impl<M> Default for Builder<M> {
             max_open: DEFAULT_MAX_OPEN_CONNS,
             max_idle: None,
             max_lifetime: None,
+            max_idle_lifetime: None,
             clean_rate: Duration::from_secs(1),
             max_bad_conn_retries: DEFAULT_BAD_CONN_RETRIES,
             get_timeout: Some(Duration::from_secs(30)),
@@ -115,7 +120,7 @@ impl<M: Manager> Builder<M> {
     ///
     /// Expired connections may be closed lazily before reuse.
     ///
-    /// None meas reuse forever.
+    /// None means reuse forever.
     /// Defaults to None.
     ///
     /// # Panics
@@ -131,12 +136,33 @@ impl<M: Manager> Builder<M> {
         self
     }
 
+    /// Sets the maximum lifetime of connection to be idle in the pool,
+    /// resetting the timer when connection is used.
+    ///
+    /// Expired connections may be closed lazily before reuse.
+    ///
+    /// None means reuse forever.
+    /// Defaults to None.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_idle_lifetime` is the zero `Duration`.
+    pub fn max_idle_lifetime(mut self, max_idle_lifetime: Option<Duration>) -> Self {
+        assert_ne!(
+            max_idle_lifetime,
+            Some(Duration::from_secs(0)),
+            "max_idle_lifetime must be positive"
+        );
+        self.max_idle_lifetime = max_idle_lifetime;
+        self
+    }
+
     /// Sets the get timeout used by the pool.
     ///
     /// Calls to `Pool::get` will wait this long for a connection to become
     /// available before returning an error.
     ///
-    /// None meas never timeout.
+    /// None means never timeout.
     /// Defaults to 30 seconds.
     ///
     /// # Panics
@@ -189,6 +215,7 @@ impl<M: Manager> Builder<M> {
             max_open: self.max_open,
             max_idle: max_idle,
             max_lifetime: self.max_lifetime,
+            max_idle_lifetime: self.max_idle_lifetime,
             get_timeout: self.get_timeout,
             clean_rate: self.clean_rate,
             max_bad_conn_retries: self.max_bad_conn_retries,
