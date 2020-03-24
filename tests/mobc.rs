@@ -469,6 +469,79 @@ fn test_set_conn_max_lifetime() {
 }
 
 #[test]
+fn test_max_idle_lifetime() {
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
+        }
+    }
+    let handler = Handler;
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_open(5)
+            .max_idle(5)
+            .max_idle_lifetime(Some(Duration::from_secs(1)))
+            .get_timeout(Some(Duration::from_secs(1)))
+            .test_on_check_out(false)
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+        drop(v);
+        delay_for(Duration::from_millis(500)).await;
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+        drop(v);
+        delay_for(Duration::from_millis(800)).await;
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+        drop(v);
+        delay_for(Duration::from_millis(2000)).await;
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn test_set_max_open_conns() {
     let mut rt: Runtime = Runtime::new().unwrap();
 

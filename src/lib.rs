@@ -193,6 +193,7 @@ struct Conn<C, E> {
     #[allow(dead_code)]
     last_err: Mutex<Option<E>>,
     created_at: Instant,
+    last_used_at: Instant,
     brand_new: bool,
 }
 
@@ -206,6 +207,12 @@ impl<C, E> Conn<C, E> {
             Some(dur) => self.created_at < Instant::now() - dur,
             None => false,
         }
+    }
+
+    fn idle_expired(&self, timeout: Option<Duration>) -> bool {
+        timeout
+            .map(|dur| self.last_used_at < Instant::now() - dur)
+            .unwrap_or(false)
     }
 }
 
@@ -480,7 +487,13 @@ impl<M: Manager> Pool<M> {
 
         if !c.brand_new {
             let mut internals = self.0.internals.lock().await;
+
             if c.expired(internals.config.max_lifetime) {
+                c.close(&mut internals);
+                return Err(Error::BadConn);
+            }
+
+            if c.idle_expired(internals.config.max_idle_lifetime) {
                 c.close(&mut internals);
                 return Err(Error::BadConn);
             }
@@ -493,6 +506,8 @@ impl<M: Manager> Pool<M> {
                 Err(e) => return Err(Error::Inner(e)),
             }
         }
+
+        c.last_used_at = Instant::now();
 
         let conn = Connection {
             pool: Some(self.clone()),
@@ -508,7 +523,6 @@ impl<M: Manager> Pool<M> {
     ) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
         let mut ctx = ctx.fuse();
 
-        
         select! {
             () = ctx => {
                 return Err(Error::Timeout)
@@ -559,6 +573,7 @@ impl<M: Manager> Pool<M> {
                     raw: Some(c),
                     last_err: Mutex::new(None),
                     created_at: Instant::now(),
+                    last_used_at: Instant::now(),
                     brand_new: true,
                 };
 
@@ -613,6 +628,7 @@ async fn open_new_connection<M: Manager>(shared: &Weak<SharedPool<M>>) {
                 raw: Some(c),
                 last_err: Mutex::new(None),
                 created_at: Instant::now(),
+                last_used_at: Instant::now(),
                 brand_new: true,
             };
             return put_conn(&shared, internals, conn).await;
