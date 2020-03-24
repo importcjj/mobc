@@ -1,6 +1,10 @@
 
 # CHANGELOG
 
+## v0.5.5 2020-03-24
+
+* Add a new option to set connection's max idle lifetime.
+
 ## v0.5.4 2020-03-17
 
 * Do not run the `check` if `health_check` is false.
