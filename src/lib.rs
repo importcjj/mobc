@@ -194,6 +194,7 @@ struct Conn<C, E> {
     last_err: Mutex<Option<E>>,
     created_at: Instant,
     last_used_at: Instant,
+    last_checked_at: Instant,
     brand_new: bool,
 }
 
@@ -213,6 +214,12 @@ impl<C, E> Conn<C, E> {
         timeout
             .map(|dur| self.last_used_at < Instant::now() - dur)
             .unwrap_or(false)
+    }
+
+    fn needs_health_check(&self, timeout: Option<Duration>) -> bool {
+        timeout
+            .map(|dur| self.last_checked_at < Instant::now() - dur)
+            .unwrap_or(true)
     }
 }
 
@@ -487,7 +494,6 @@ impl<M: Manager> Pool<M> {
 
         if !c.brand_new {
             let mut internals = self.0.internals.lock().await;
-
             if c.expired(internals.config.max_lifetime) {
                 c.close(&mut internals);
                 return Err(Error::BadConn);
@@ -497,13 +503,22 @@ impl<M: Manager> Pool<M> {
                 c.close(&mut internals);
                 return Err(Error::BadConn);
             }
-        }
 
-        if !c.brand_new && self.0.config.health_check {
-            let raw = c.raw.take().unwrap();
-            match self.0.manager.check(raw).await {
-                Ok(raw) => c.raw = Some(raw),
-                Err(e) => return Err(Error::Inner(e)),
+            let needs_health_check = self.0.config.health_check
+                && c.needs_health_check(self.0.config.health_check_interval);
+
+            if needs_health_check {
+                let raw = c.raw.take().unwrap();
+                match self.0.manager.check(raw).await {
+                    Ok(raw) => {
+                        c.last_checked_at = Instant::now();
+                        c.raw = Some(raw)
+                    }
+                    Err(e) => {
+                        internals.num_open -= 1;
+                        return Err(Error::Inner(e));
+                    }
+                }
             }
         }
 
@@ -513,6 +528,7 @@ impl<M: Manager> Pool<M> {
             pool: Some(self.clone()),
             conn: Some(c),
         };
+
         Ok(conn)
     }
 
@@ -563,24 +579,24 @@ impl<M: Manager> Pool<M> {
             }
         }
 
-        internals.num_open += 1;
-        drop(internals);
-
         log::debug!("get conn with manager create");
         match self.0.manager.connect().await {
             Ok(c) => {
+                internals.num_open += 1;
+                drop(internals);
+
                 let conn = Conn {
                     raw: Some(c),
                     last_err: Mutex::new(None),
                     created_at: Instant::now(),
                     last_used_at: Instant::now(),
+                    last_checked_at: Instant::now(),
                     brand_new: true,
                 };
 
                 return Ok(conn);
             }
             Err(e) => {
-                let internals = self.0.internals.lock().await;
                 maybe_open_new_connection(&self.0, internals).await;
                 return Err(Error::Inner(e));
             }
@@ -629,6 +645,7 @@ async fn open_new_connection<M: Manager>(shared: &Weak<SharedPool<M>>) {
                 last_err: Mutex::new(None),
                 created_at: Instant::now(),
                 last_used_at: Instant::now(),
+                last_checked_at: Instant::now(),
                 brand_new: true,
             };
             return put_conn(&shared, internals, conn).await;
