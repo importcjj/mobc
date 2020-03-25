@@ -184,13 +184,71 @@ fn test_drop_on_broken() {
         }
     }
     let handler = Handler;
+
     rt.block_on(async {
-        let pool = Pool::new(handler);
+        let pool = Pool::builder().max_open(1).build(handler);
 
         assert!(pool.get().await.is_ok());
         delay_for(Duration::from_secs(1)).await;
+        assert!(!DROPPED.load(Ordering::SeqCst));
+
         assert!(pool.get().await.is_err());
         assert!(DROPPED.load(Ordering::SeqCst));
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_health_check_interval() {
+    static DROPPED: AtomicBool = AtomicBool::new(false);
+    DROPPED.store(false, Ordering::SeqCst);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, _conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Err(TestError)
+        }
+    }
+    let handler = Handler;
+
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_open(1)
+            .test_on_check_out(true)
+            .health_check_interval(Some(Duration::from_secs(1)))
+            .build(handler);
+
+        assert!(pool.get().await.is_ok());
+        delay_for(Duration::from_millis(500)).await;
+        assert!(!DROPPED.load(Ordering::SeqCst));
+
+        assert!(pool.get().await.is_ok());
+        assert!(!DROPPED.load(Ordering::SeqCst));
+
+        delay_for(Duration::from_millis(600)).await;
+        assert!(pool.get().await.is_err());
+        assert!(DROPPED.load(Ordering::SeqCst));
+
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
@@ -233,7 +291,7 @@ fn test_invalid_conn() {
         delay_for(Duration::from_secs(1)).await;
         assert!(pool.get().await.is_err());
         assert!(DROPPED.load(Ordering::SeqCst));
-        assert_eq!(1_u64, pool.state().await.connections);
+        assert_eq!(0_u64, pool.state().await.connections);
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();

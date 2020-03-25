@@ -14,6 +14,7 @@ pub(crate) struct Config {
     pub clean_rate: Duration,
     pub max_bad_conn_retries: u32,
     pub get_timeout: Option<Duration>,
+    pub health_check_interval: Option<Duration>,
     pub health_check: bool,
 }
 
@@ -24,6 +25,7 @@ impl Config {
             max_bad_conn_retries: self.max_bad_conn_retries,
             get_timeout: self.get_timeout,
             health_check: self.health_check,
+            health_check_interval: self.health_check_interval,
         };
 
         let internal = InternalConfig {
@@ -42,6 +44,7 @@ pub(crate) struct ShareConfig {
     pub max_bad_conn_retries: u32,
     pub get_timeout: Option<Duration>,
     pub health_check: bool,
+    pub health_check_interval: Option<Duration>,
 }
 
 pub(crate) struct InternalConfig {
@@ -60,6 +63,7 @@ pub struct Builder<M> {
     clean_rate: Duration,
     max_bad_conn_retries: u32,
     get_timeout: Option<Duration>,
+    health_check_interval: Option<Duration>,
     health_check: bool,
     _keep: PhantomData<M>,
 }
@@ -76,6 +80,7 @@ impl<M> Default for Builder<M> {
             get_timeout: Some(Duration::from_secs(30)),
             _keep: PhantomData,
             health_check: true,
+            health_check_interval: None,
         }
     }
 }
@@ -90,7 +95,8 @@ impl<M: Manager> Builder<M> {
 
     /// Sets the maximum number of connections managed by the pool.
     ///
-    /// 0 means unlimited, defaults to 10.
+    /// - 0 means unlimited.
+    /// - Defaults to 10.
     pub fn max_open(mut self, max_open: u64) -> Self {
         self.max_open = max_open;
         self
@@ -101,7 +107,7 @@ impl<M: Manager> Builder<M> {
     /// The pool will maintain at most this many idle connections
     /// at all times, while respecting the value of `max_open`.
     ///
-    /// Defaults to 2.
+    /// - Defaults to 2.
     pub fn max_idle(mut self, max_idle: u64) -> Self {
         self.max_idle = Some(max_idle);
         self
@@ -110,7 +116,7 @@ impl<M: Manager> Builder<M> {
     /// If true, the health of a connection will be verified via a call to
     /// `Manager::check` before it is checked out of the pool.
     ///
-    /// Defaults to true.
+    /// - Defaults to true.
     pub fn test_on_check_out(mut self, health_check: bool) -> Builder<M> {
         self.health_check = health_check;
         self
@@ -120,8 +126,8 @@ impl<M: Manager> Builder<M> {
     ///
     /// Expired connections may be closed lazily before reuse.
     ///
-    /// None means reuse forever.
-    /// Defaults to None.
+    /// - `None` means reuse forever.
+    /// - Defaults to `None`.
     ///
     /// # Panics
     ///
@@ -141,8 +147,8 @@ impl<M: Manager> Builder<M> {
     ///
     /// Expired connections may be closed lazily before reuse.
     ///
-    /// None means reuse forever.
-    /// Defaults to None.
+    /// - `None` means reuse forever.
+    /// - Defaults to `None`.
     ///
     /// # Panics
     ///
@@ -162,8 +168,8 @@ impl<M: Manager> Builder<M> {
     /// Calls to `Pool::get` will wait this long for a connection to become
     /// available before returning an error.
     ///
-    /// None means never timeout.
-    /// Defaults to 30 seconds.
+    /// - `None` means never timeout.
+    /// - Defaults to 30 seconds.
     ///
     /// # Panics
     ///
@@ -176,6 +182,31 @@ impl<M: Manager> Builder<M> {
         );
 
         self.get_timeout = get_timeout;
+        self
+    }
+
+    /// Sets the interval how often a connection will be checked when returning
+    /// an existing connection from the pool. If set to `None`, a connection is
+    /// checked every time when returning from the pool. Must be used together
+    /// with [`test_on_check_out`] set to `true`, otherwise does nothing.
+    ///
+    /// - `None` means a connection is checked every time when returning from the
+    ///   pool.
+    /// - Defaults to `None`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `connection_timeout` is the zero duration
+    ///
+    /// [`test_on_check_out`]: #method.test_on_check_out
+    pub fn health_check_interval(mut self, health_check_interval: Option<Duration>) -> Self {
+        assert_ne!(
+            health_check_interval,
+            Some(Duration::from_secs(0)),
+            "health_check_interval must be positive"
+        );
+
+        self.health_check_interval = health_check_interval;
         self
     }
 
@@ -213,13 +244,14 @@ impl<M: Manager> Builder<M> {
 
         let config = Config {
             max_open: self.max_open,
-            max_idle: max_idle,
+            max_idle,
             max_lifetime: self.max_lifetime,
             max_idle_lifetime: self.max_idle_lifetime,
             get_timeout: self.get_timeout,
             clean_rate: self.clean_rate,
             max_bad_conn_retries: self.max_bad_conn_retries,
             health_check: self.health_check,
+            health_check_interval: self.health_check_interval,
         };
 
         Pool::new_inner(manager, config)
