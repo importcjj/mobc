@@ -1,6 +1,10 @@
 
 # CHANGELOG
 
+## v0.5.6 2020-03-26
+
+*	Fixes to health checks, add a check interval
+
 ## v0.5.5 2020-03-24
 
 * Add a new option to set connection's max idle lifetime.
