@@ -1,6 +1,10 @@
 
 # CHANGELOG
 
+## v0.5.7 2020-03-28
+
+* Fix PANIC: overflow when subtracting duration from instant.
+
 ## v0.5.6 2020-03-26
 
 *	Fixes to health checks, add a check interval
