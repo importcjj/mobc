@@ -204,21 +204,32 @@ impl<C, E> Conn<C, E> {
     }
 
     fn expired(&self, timeout: Option<Duration>) -> bool {
-        match timeout {
-            Some(dur) => self.created_at < Instant::now() - dur,
-            None => false,
-        }
+        timeout
+            .and_then(|check_interval| {
+                Instant::now()
+                    .checked_duration_since(self.created_at)
+                    .map(|dur_since| dur_since >= check_interval)
+            })
+            .unwrap_or(false)
     }
 
     fn idle_expired(&self, timeout: Option<Duration>) -> bool {
         timeout
-            .map(|dur| self.last_used_at < Instant::now() - dur)
+            .and_then(|check_interval| {
+                Instant::now()
+                    .checked_duration_since(self.last_used_at)
+                    .map(|dur_since| dur_since >= check_interval)
+            })
             .unwrap_or(false)
     }
 
     fn needs_health_check(&self, timeout: Option<Duration>) -> bool {
         timeout
-            .map(|dur| self.last_checked_at < Instant::now() - dur)
+            .and_then(|check_interval| {
+                Instant::now()
+                    .checked_duration_since(self.last_checked_at)
+                    .map(|dur_since| dur_since >= check_interval)
+            })
             .unwrap_or(true)
     }
 }
