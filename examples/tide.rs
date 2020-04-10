@@ -1,4 +1,5 @@
-use mobc_foo::FooManager;
+mod foodb;
+use foodb::FooManager;
 
 use tide::Request;
 

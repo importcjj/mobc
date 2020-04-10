@@ -1,5 +1,8 @@
+
+mod foodb;
+
 use actix_web::{web, App, HttpServer, Responder};
-use mobc_foo::FooManager;
+use foodb::FooManager;
 
 type Pool = mobc::Pool<FooManager>;
 
