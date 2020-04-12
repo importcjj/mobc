@@ -1,6 +1,6 @@
 [package]
 name = "mobc-redis"
-version = "0.4.0"
+version = "0.5.1"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 
@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 mobc = { version = "0.5", path = ".." }
-redis = "0.14"
+redis = "0.15"
 
 [dev-dependencies]
 actix-web = "2.0.0"

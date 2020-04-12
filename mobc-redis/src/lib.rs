@@ -2,6 +2,7 @@ use mobc::async_trait;
 use mobc::Manager;
 pub use redis;
 pub use redis::aio::Connection;
+pub use redis::AsyncCommands;
 use redis::Client;
 
 pub struct RedisConnectionManager {
@@ -29,4 +30,3 @@ impl Manager for RedisConnectionManager {
         Ok(conn)
     }
 }
-
