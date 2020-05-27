@@ -1,6 +1,6 @@
 use mobc::Pool;
 use mobc_redis::RedisConnectionManager;
-use mobc_redis::{redis, Connection};
+use mobc_redis::{redis, AsyncCommands};
 use std::time::Instant;
 
 #[tokio::main]
@@ -18,11 +18,13 @@ async fn main() {
         let mut tx_c = tx.clone();
         tokio::spawn(async move {
             let mut conn = pool.get().await.unwrap();
-            let s: String = redis::cmd("PING")
-                .query_async(&mut conn as &mut Connection)
-                .await
-                .unwrap();
-            assert_eq!(s.as_str(), "PONG");
+            // let s: String = redis::cmd("PING")
+            //     .query_async(&mut conn as &mut Connection)
+            //     .await
+            //     .unwrap();
+
+            let s: String = conn.get("test").await.unwrap();
+            assert_eq!(s.as_str(), "hello");
             tx_c.send(i).await.unwrap();
         });
     }
