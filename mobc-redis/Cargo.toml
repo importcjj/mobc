@@ -3,6 +3,8 @@ name = "mobc-redis"
 version = "0.5.2"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
+license = "MIT/Apache-2.0"
+description = "Async redis pool"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
