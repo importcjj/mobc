@@ -155,7 +155,7 @@ fn test_is_send_sync() {
 }
 
 #[test]
-fn test_drop_on_broken() {
+fn test_drop_on_checkout() {
     static DROPPED: AtomicBool = AtomicBool::new(false);
     DROPPED.store(false, Ordering::SeqCst);
     let mut rt: Runtime = Runtime::new().unwrap();
@@ -193,6 +193,58 @@ fn test_drop_on_broken() {
         assert!(!DROPPED.load(Ordering::SeqCst));
 
         assert!(pool.get().await.is_err());
+        assert!(DROPPED.load(Ordering::SeqCst));
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_drop_on_checkin() {
+    static DROPPED: AtomicBool = AtomicBool::new(false);
+    DROPPED.store(false, Ordering::SeqCst);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
+        }
+
+        async fn test_on_check_in(&self, _conn: &mut Self::Connection) -> Result<(), Self::Error> {
+            Err(TestError)
+        }
+    }
+    let handler = Handler;
+
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_open(1)
+            .test_on_check_in(true)
+            .build(handler);
+
+        let conn = pool.get().await?;
+        assert!(!DROPPED.load(Ordering::SeqCst));
+        drop(conn);
+        delay_for(Duration::from_secs(1)).await;
         assert!(DROPPED.load(Ordering::SeqCst));
 
         Ok::<(), Error<TestError>>(())
