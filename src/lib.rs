@@ -452,7 +452,7 @@ impl<M: Manager> Pool<M> {
     pub async fn get(&self) -> Result<Connection<M>, Error<M::Error>> {
         match self.0.config.get_timeout {
             Some(duration) => self.get_timeout(duration).await,
-            None => self.inner_get_never_timeout().await,
+            None => self.inner_get_with_retries().await,
         }
     }
 
@@ -461,19 +461,19 @@ impl<M: Manager> Pool<M> {
     /// The given timeout will be used instead of the configured connection
     /// timeout.
     pub async fn get_timeout(&self, duration: Duration) -> Result<Connection<M>, Error<M::Error>> {
-        let mut try_times: u32 = 0;
-        let deadline = Instant::now() + duration;
+        time::timeout(duration, self.inner_get_with_retries()).await
+    }
 
+    async fn inner_get_with_retries(&self) -> Result<Connection<M>, Error<M::Error>> {
+        let mut try_times: u32 = 0;
         let config = &self.0.config;
         loop {
-            let timeout = delay_until(deadline);
             try_times += 1;
-            match self.get_ctx(GetStrategy::CachedOrNewConn, timeout).await {
+            match self.strategy_get(GetStrategy::CachedOrNewConn).await {
                 Ok(conn) => return Ok(conn),
                 Err(Error::BadConn) => {
                     if try_times == config.max_bad_conn_retries {
-                        let timeout = delay_until(deadline);
-                        return self.get_ctx(GetStrategy::AlwaysNewConn, timeout).await;
+                        return self.strategy_get(GetStrategy::AlwaysNewConn).await;
                     }
                     continue;
                 }
@@ -482,32 +482,11 @@ impl<M: Manager> Pool<M> {
         }
     }
 
-    async fn inner_get_never_timeout(&self) -> Result<Connection<M>, Error<M::Error>> {
-        let mut try_times: u32 = 0;
-        let config = &self.0.config;
-        loop {
-            let never_ot = futures::future::pending();
-            try_times += 1;
-            match self.get_ctx(GetStrategy::CachedOrNewConn, never_ot).await {
-                Ok(conn) => return Ok(conn),
-                Err(Error::BadConn) => {
-                    if try_times == config.max_bad_conn_retries {
-                        let never_ot = futures::future::pending();
-                        return self.get_ctx(GetStrategy::AlwaysNewConn, never_ot).await;
-                    }
-                    continue;
-                }
-                Err(err) => return Err(err),
-            }
-        }
-    }
-
-    async fn get_ctx(
+    async fn strategy_get(
         &self,
         strategy: GetStrategy,
-        ctx: impl Future<Output = ()> + Unpin,
     ) -> Result<Connection<M>, Error<M::Error>> {
-        let mut c = self.inner_get_ctx(strategy, ctx).await?;
+        let mut c = self.inner_strategy_ctx(strategy).await?;
 
         if !c.brand_new {
             let mut internals = self.0.internals.lock().await;
@@ -549,19 +528,11 @@ impl<M: Manager> Pool<M> {
         Ok(conn)
     }
 
-    async fn inner_get_ctx(
+    async fn inner_strategy_ctx(
         &self,
         strategy: GetStrategy,
-        ctx: impl Future<Output = ()> + Unpin,
     ) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
-        let mut ctx = ctx.fuse();
 
-        select! {
-            () = ctx => {
-                return Err(Error::Timeout)
-            }
-            default => ()
-        }
         let mut internals = self.0.internals.lock().await;
         let num_free = internals.free_conns.len();
         if strategy == GetStrategy::CachedOrNewConn && num_free > 0 {
@@ -580,19 +551,11 @@ impl<M: Manager> Pool<M> {
                 drop(internals);
 
                 let wait_start = Instant::now();
-                select! {
-                    () = ctx.fuse() => {
-                        let mut internals = self.0.internals.lock().await;
-                        internals.conn_requests.remove(&req_key);
-                        internals.wait_duration += wait_start.elapsed();
+                let conn = req_recv.await.unwrap();
+                let mut internals = self.0.internals.lock().await;
+                internals.wait_duration += wait_start.elapsed();
 
-                        return Err(Error::Timeout)
-                    }
-                    conn = req_recv.fuse() => {
-                        let c = conn.unwrap();
-                        return Ok(c)
-                    }
-                }
+                return Ok(conn)
             }
         }
 
@@ -706,6 +669,10 @@ async fn put_conn<M: Manager>(
     if internals.conn_requests.len() > 0 {
         let key = internals.conn_requests.keys().next().unwrap().clone();
         let req = internals.conn_requests.remove(&key).unwrap();
+
+        if req.is_canceled() {
+            return put_idle_conn(shared, internals, conn);
+        }
 
         // FIXME
         if let Err(conn) = req.send(conn) {

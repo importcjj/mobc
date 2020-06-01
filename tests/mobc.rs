@@ -902,3 +902,39 @@ fn test_is_brand_new() {
     })
     .unwrap();
 }
+
+#[test]
+fn test_timeout_when_db_has_gone() {
+    struct Connection;
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            futures::future::pending::<()>().await;
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            futures::future::pending::<()>().await;
+            Ok(conn)
+        }
+    }
+
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        const GET_TIMEOUT: Duration = Duration::from_secs(1);
+        let pool = Pool::builder().get_timeout(Some(GET_TIMEOUT)).build(Handler);
+
+        let start = Instant::now();
+        assert!(pool.get().await.is_err());
+        assert!(start.elapsed() > GET_TIMEOUT);
+        assert!(start.elapsed() < GET_TIMEOUT + Duration::from_millis(100));
+        Ok::<(), Error<TestError>>(())
+
+    })
+    .unwrap();
+}
