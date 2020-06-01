@@ -4,7 +4,21 @@ A generic connection pool with async/await support.
 
 Inspired by r2d2 and Golang SQL package.
 
-[![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=master)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-0.5.7-%23dea584)](https://crates.io/crates/mobc)
+<div>
+  <a href="https://travis-ci.com/github/importcjj/mobc">
+    <img src="https://travis-ci.com/importcjj/mobc.svg?branch=master" alt="travis ci" />
+  </a>
+<!-- Crates version -->
+  <a href="https://crates.io/crates/mobc">
+    <img src="https://img.shields.io/crates/v/mobc.svg?style=flat-square"
+    alt="Crates.io version" />
+  </a>
+<!-- Downloads -->
+<a href="https://crates.io/crates/mobc">
+<img src="https://img.shields.io/crates/d/mobc.svg?style=flat-square"
+    alt="Download" />
+</a>
+</div>
 
 [Documentation](https://docs.rs/mobc/latest/mobc/)
 

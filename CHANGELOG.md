@@ -1,6 +1,10 @@
 
 # CHANGELOG
 
+## v0.5.9 2020-6-1
+
+* Add a hook to determine connections are valid when check-in.
+
 ## v0.5.7 2020-03-28
 
 * Fix PANIC: overflow when subtracting duration from instant.
