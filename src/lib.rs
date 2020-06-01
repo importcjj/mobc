@@ -175,11 +175,17 @@ pub trait Manager: Send + Sync + 'static {
 
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error>;
-    /// Determines if the connection is still connected to the database.
+
+    /// Determines if the connection is still connected to the database when check-out.
     ///
     /// A standard implementation would check if a simple query like `SELECT 1`
     /// succeeds.
     async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error>;
+
+    /// Determines connection is still valid when check-in.
+    async fn test_on_check_in(&self, _conn: &mut Self::Connection) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 struct SharedPool<M: Manager> {
@@ -681,6 +687,18 @@ async fn put_conn<M: Manager>(
     if internals.config.max_open > 0 && internals.num_open > internals.config.max_open {
         conn.close(&mut internals);
         return;
+    }
+
+    if shared.config.test_on_check_in {
+        if let Err(_) = shared
+            .manager
+            .test_on_check_in(conn.raw.as_mut().unwrap())
+            .await
+        {
+            log::debug!("bad conn when check in");
+            conn.close(&mut internals);
+            return maybe_open_new_connection(shared, internals).await;
+        }
     }
 
     conn.brand_new = false;

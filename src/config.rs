@@ -16,6 +16,7 @@ pub(crate) struct Config {
     pub get_timeout: Option<Duration>,
     pub health_check_interval: Option<Duration>,
     pub health_check: bool,
+    pub test_on_check_in: bool,
 }
 
 impl Config {
@@ -26,6 +27,7 @@ impl Config {
             get_timeout: self.get_timeout,
             health_check: self.health_check,
             health_check_interval: self.health_check_interval,
+            test_on_check_in: self.test_on_check_in,
         };
 
         let internal = InternalConfig {
@@ -45,6 +47,7 @@ pub(crate) struct ShareConfig {
     pub get_timeout: Option<Duration>,
     pub health_check: bool,
     pub health_check_interval: Option<Duration>,
+    pub test_on_check_in: bool,
 }
 
 pub(crate) struct InternalConfig {
@@ -65,6 +68,7 @@ pub struct Builder<M> {
     get_timeout: Option<Duration>,
     health_check_interval: Option<Duration>,
     health_check: bool,
+    test_on_check_in: bool,
     _keep: PhantomData<M>,
 }
 
@@ -81,6 +85,7 @@ impl<M> Default for Builder<M> {
             _keep: PhantomData,
             health_check: true,
             health_check_interval: None,
+            test_on_check_in: false,
         }
     }
 }
@@ -119,6 +124,15 @@ impl<M: Manager> Builder<M> {
     /// - Defaults to true.
     pub fn test_on_check_out(mut self, health_check: bool) -> Builder<M> {
         self.health_check = health_check;
+        self
+    }
+
+    /// If true, the health of a connection will be verified via a all to
+    /// `Manager::on_check_in` before it is checked out of the pool.
+    ///
+    /// - Defaults to false.
+    pub fn test_on_check_in(mut self, health_check: bool) -> Builder<M> {
+        self.test_on_check_in = health_check;
         self
     }
 
@@ -252,6 +266,7 @@ impl<M: Manager> Builder<M> {
             max_bad_conn_retries: self.max_bad_conn_retries,
             health_check: self.health_check,
             health_check_interval: self.health_check_interval,
+            test_on_check_in: self.test_on_check_in,
         };
 
         Pool::new_inner(manager, config)
