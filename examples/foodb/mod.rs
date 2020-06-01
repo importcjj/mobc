@@ -26,4 +26,3 @@ impl Manager for FooManager {
         Ok(conn)
     }
 }
-
