@@ -1,7 +1,11 @@
 
 # CHANGELOG
 
-## v0.5.9 2020-6-1
+## v0.5.9 2020-6-3
+
+* Fix get timeout.
+
+## v0.5.8 2020-6-1
 
 * Add a hook to determine connections are valid when check-in.
 
