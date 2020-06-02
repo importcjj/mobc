@@ -1,11 +1,15 @@
 
 # CHANGELOG
 
+## v0.5.10 2020-6-3
+
+* Add a sync hook `validate` in the `Manager` trait to *quickly* determine connections are still valid when check-in
+
 ## v0.5.9 2020-6-3
 
 * Fix get timeout.
 
-## v0.5.8 2020-6-1
+## v0.5.8(yanked) 2020-6-1
 
 * Add a hook to determine connections are valid when check-in.
 
