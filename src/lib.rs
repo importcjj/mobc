@@ -184,7 +184,7 @@ pub trait Manager: Send + Sync + 'static {
 
     /// *Quickly* determines a connection is still valid when check-in.
     #[inline]
-    fn is_conn_valid(&self, _conn: &mut Self::Connection) -> bool {
+    fn validate(&self, _conn: &mut Self::Connection) -> bool {
         true
     }
 }
@@ -690,7 +690,7 @@ async fn put_conn<M: Manager>(
         return;
     }
 
-    if !shared.manager.is_conn_valid(conn.raw.as_mut().unwrap()) {
+    if !shared.manager.validate(conn.raw.as_mut().unwrap()) {
         log::debug!("bad conn when check in");
         conn.close(&mut internals);
         return maybe_open_new_connection(shared, internals).await;

@@ -229,7 +229,7 @@ fn test_drop_on_checkin() {
             Ok(conn)
         }
 
-        fn is_conn_valid(&self, _conn: &mut Self::Connection) -> bool {
+        fn validate(&self, _conn: &mut Self::Connection) -> bool {
             false
         }
     }
