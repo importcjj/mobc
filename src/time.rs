@@ -1,4 +1,18 @@
+use crate::Error;
+use futures::FutureExt;
+use std::future::Future;
+use std::time::Duration;
 pub use time::{delay_for, delay_until, interval};
+
+pub(crate) async fn timeout<F, T, E>(duration: Duration, f: F) -> Result<T, Error<E>>
+where
+    F: Future<Output = Result<T, Error<E>>>,
+{
+    futures::select! {
+        () = delay_for(duration).fuse() => Err(Error::Timeout),
+        rsp = f.fuse() => rsp,
+    }
+}
 
 mod time {
     use std::time::Duration;
