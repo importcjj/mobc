@@ -229,17 +229,14 @@ fn test_drop_on_checkin() {
             Ok(conn)
         }
 
-        async fn test_on_check_in(&self, _conn: &mut Self::Connection) -> Result<(), Self::Error> {
-            Err(TestError)
+        fn is_conn_valid(&self, _conn: &mut Self::Connection) -> bool {
+            false
         }
     }
     let handler = Handler;
 
     rt.block_on(async {
-        let pool = Pool::builder()
-            .max_open(1)
-            .test_on_check_in(true)
-            .build(handler);
+        let pool = Pool::builder().max_open(1).build(handler);
 
         let conn = pool.get().await?;
         assert!(!DROPPED.load(Ordering::SeqCst));

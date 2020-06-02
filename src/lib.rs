@@ -182,9 +182,10 @@ pub trait Manager: Send + Sync + 'static {
     /// succeeds.
     async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error>;
 
-    /// Determines connection is still valid when check-in.
-    async fn test_on_check_in(&self, _conn: &mut Self::Connection) -> Result<(), Self::Error> {
-        Ok(())
+    /// *Quickly* determines a connection is still valid when check-in.
+    #[inline]
+    fn is_conn_valid(&self, _conn: &mut Self::Connection) -> bool {
+        true
     }
 }
 
@@ -689,16 +690,10 @@ async fn put_conn<M: Manager>(
         return;
     }
 
-    if shared.config.test_on_check_in {
-        if let Err(_) = shared
-            .manager
-            .test_on_check_in(conn.raw.as_mut().unwrap())
-            .await
-        {
-            log::debug!("bad conn when check in");
-            conn.close(&mut internals);
-            return maybe_open_new_connection(shared, internals).await;
-        }
+    if !shared.manager.is_conn_valid(conn.raw.as_mut().unwrap()) {
+        log::debug!("bad conn when check in");
+        conn.close(&mut internals);
+        return maybe_open_new_connection(shared, internals).await;
     }
 
     conn.brand_new = false;
