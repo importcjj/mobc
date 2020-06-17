@@ -155,7 +155,7 @@ fn test_is_send_sync() {
 }
 
 #[test]
-fn test_drop_on_broken() {
+fn test_drop_on_checkout() {
     static DROPPED: AtomicBool = AtomicBool::new(false);
     DROPPED.store(false, Ordering::SeqCst);
     let mut rt: Runtime = Runtime::new().unwrap();
@@ -193,6 +193,55 @@ fn test_drop_on_broken() {
         assert!(!DROPPED.load(Ordering::SeqCst));
 
         assert!(pool.get().await.is_err());
+        assert!(DROPPED.load(Ordering::SeqCst));
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_drop_on_checkin() {
+    static DROPPED: AtomicBool = AtomicBool::new(false);
+    DROPPED.store(false, Ordering::SeqCst);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
+        }
+
+        fn validate(&self, _conn: &mut Self::Connection) -> bool {
+            false
+        }
+    }
+    let handler = Handler;
+
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(1).build(handler);
+
+        let conn = pool.get().await?;
+        assert!(!DROPPED.load(Ordering::SeqCst));
+        drop(conn);
+        delay_for(Duration::from_secs(1)).await;
         assert!(DROPPED.load(Ordering::SeqCst));
 
         Ok::<(), Error<TestError>>(())
@@ -847,6 +896,89 @@ fn test_is_brand_new() {
         let conn = pool.get().await.ok().unwrap();
         assert!(!conn.is_brand_new());
         Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_timeout_when_db_has_gone() {
+    struct Connection;
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            futures::future::pending::<()>().await;
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            futures::future::pending::<()>().await;
+            Ok(conn)
+        }
+    }
+
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        const GET_TIMEOUT: Duration = Duration::from_secs(1);
+        let pool = Pool::builder().get_timeout(Some(GET_TIMEOUT)).build(Handler);
+
+        let start = Instant::now();
+        assert!(pool.get().await.is_err());
+        assert!(start.elapsed() > GET_TIMEOUT);
+        assert!(start.elapsed() < GET_TIMEOUT + Duration::from_millis(100));
+        Ok::<(), Error<TestError>>(())
+
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_timeout_when_db_has_gone2() {
+    use std::sync::atomic::AtomicU32;
+    use std::sync::atomic::Ordering;
+    struct Connection;
+    struct Handler(AtomicU32);
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            if self.0.load(Ordering::Relaxed) > 0 {
+                futures::future::pending::<()>().await;
+            } else {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            if self.0.load(Ordering::Relaxed) > 0 {
+                futures::future::pending::<()>().await;
+            }
+            Ok(conn)
+        }
+    }
+
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        const GET_TIMEOUT: Duration = Duration::from_secs(2);
+        let handler = Handler(AtomicU32::new(0));
+        let pool = Pool::builder().get_timeout(Some(GET_TIMEOUT)).build(handler);
+
+        assert!(pool.get().await.is_ok());
+
+        let start = Instant::now();
+        assert!(pool.get().await.is_err());
+        assert!(start.elapsed() > GET_TIMEOUT);
+        assert!(start.elapsed() < GET_TIMEOUT + Duration::from_millis(100));
+        Ok::<(), Error<TestError>>(())
+
     })
     .unwrap();
 }

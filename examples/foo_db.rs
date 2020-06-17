@@ -1,7 +1,7 @@
 mod foodb;
 
-use mobc::Pool;
 use foodb::FooManager;
+use mobc::Pool;
 use std::time::Instant;
 
 #[tokio::main]

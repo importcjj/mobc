@@ -1,9 +1,10 @@
+  
 use mobc::async_trait;
 use mobc::Manager;
 pub use redis;
 pub use redis::aio::Connection;
 pub use redis::AsyncCommands;
-use redis::Client;
+use redis::{Client, ErrorKind};
 
 pub struct RedisConnectionManager {
     client: Client,
@@ -26,7 +27,11 @@ impl Manager for RedisConnectionManager {
     }
 
     async fn check(&self, mut conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-        redis::cmd("PING").query_async(&mut conn).await?;
+        let pong: String = redis::cmd("PING").query_async(&mut conn).await?;
+        if pong.as_str() != "PONG" {
+            return Err((ErrorKind::ResponseError, "pong response error").into())
+        }
         Ok(conn)
     }
 }
+

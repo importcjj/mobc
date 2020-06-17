@@ -1,6 +1,6 @@
 [package]
 name = "mobc-redis"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
@@ -12,7 +12,7 @@ keywords = ["redis", "pool", "async", "await"]
 
 [dependencies]
 mobc = { version = "0.5", path = ".." }
-redis = "0.15"
+redis = "0.16"
 
 [dev-dependencies]
 actix-web = "2.0.0"

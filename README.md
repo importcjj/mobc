@@ -4,7 +4,21 @@ A generic connection pool with async/await support.
 
 Inspired by r2d2 and Golang SQL package.
 
-[![Build Status](https://travis-ci.com/importcjj/mobc.svg?token=ZZrg3rRkUA8NUGrjEsU9&branch=master)](https://travis-ci.com/importcjj/mobc) [![crates.io](https://img.shields.io/badge/crates.io-0.5.7-%23dea584)](https://crates.io/crates/mobc)
+<div>
+  <a href="https://travis-ci.com/github/importcjj/mobc">
+    <img src="https://travis-ci.com/importcjj/mobc.svg?branch=master" alt="travis ci" />
+  </a>
+<!-- Crates version -->
+  <a href="https://crates.io/crates/mobc">
+    <img src="https://img.shields.io/crates/v/mobc.svg?style=flat-square"
+    alt="Crates.io version" />
+  </a>
+<!-- Downloads -->
+<a href="https://crates.io/crates/mobc">
+<img src="https://img.shields.io/crates/d/mobc.svg?style=flat-square"
+    alt="Download" />
+</a>
+</div>
 
 [Documentation](https://docs.rs/mobc/latest/mobc/)
 
@@ -31,10 +45,53 @@ mobc = "0.5"
 * Easy to customize
 * Dynamic configuration
 
+## Adaptors
+
+
 | Backend                                                     | Adaptor Crate                                               |
 | ----------------------------------------------------------- | ----------------------------------------------------------- |
 | [tokio-postgres](https://github.com/sfackler/rust-postgres) | [mobc-postgres](https://github.com/importcjj/mobc-postgres) |
-| [redis](https://github.com/mitsuhiko/redis-rs) | [mobc-redis](https://github.com/importcjj/mobc-redis) |
+| [redis](https://github.com/mitsuhiko/redis-rs)              | [mobc-redis](https://github.com/importcjj/mobc-redis)       |
+| [arangodb](https://github.com/fMeow/arangors)               | [mobc-arangors](https://github.com/inzanez/mobc-arangors)   |
+
+More DB adaptors are welcome.
+
+## Examples
+
+More [examples](https://github.com/importcjj/mobc/tree/master/mobc-foo/examples)
+
+Using an imaginary "foodb" database.
+
+```rust
+use mobc::{async_trait, Manager};
+
+#[derive(Debug)]
+pub struct FooError;
+
+pub struct FooConnection;
+
+impl FooConnection {
+    pub async fn query(&self) -> String {
+        "PONG".to_string()
+    }
+}
+
+pub struct FooManager;
+
+#[async_trait]
+impl Manager for FooManager {
+    type Connection = FooConnection;
+    type Error = FooError;
+
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        Ok(FooConnection)
+    }
+
+    async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+        Ok(conn)
+    }
+}
+```
 
 ## Configures
 
@@ -75,39 +132,4 @@ Some of the connection pool configurations can be adjusted dynamically. Each con
 ## Compatibility
 Because tokio is not compatible with other runtimes, such as async-std. So a database driver written with tokio cannot run in the async-std runtime. For example, you can't use redis-rs in tide because it uses tokio, so the connection pool which bases on redis-res can't be used in tide either.
 
-## Examples
 
-More [examples](https://github.com/importcjj/mobc/tree/master/mobc-foo/examples)
-
-Using an imaginary "foodb" database.
-
-```rust
-use mobc::{async_trait, Manager};
-
-#[derive(Debug)]
-pub struct FooError;
-
-pub struct FooConnection;
-
-impl FooConnection {
-    pub async fn query(&self) -> String {
-        "PONG".to_string()
-    }
-}
-
-pub struct FooManager;
-
-#[async_trait]
-impl Manager for FooManager {
-    type Connection = FooConnection;
-    type Error = FooError;
-
-    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        Ok(FooConnection)
-    }
-
-    async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-        Ok(conn)
-    }
-}
-```
