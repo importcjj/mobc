@@ -18,10 +18,10 @@ unstable = []
 
 [dependencies]
 futures = "0.3"
-tokio = { version = "0.2.6", features=["rt-core", "time"], optional = true }
+tokio = { version = "0.2", features=["rt-core", "time"], optional = true }
 async-std = { version = "1.0", features=["unstable"], optional = true }
-async-trait = "0.1.17"
-futures-timer = "2.0.2"
+async-trait = "0.1"
+futures-timer = "3.0.2"
 log = "0.4"
 
 [dev-dependencies]

@@ -2,7 +2,7 @@ use crate::Error;
 use futures::FutureExt;
 use std::future::Future;
 use std::time::Duration;
-pub use time::{delay_for, delay_until, interval};
+pub use time::{delay_for, interval};
 
 pub(crate) async fn timeout<F, T, E>(duration: Duration, f: F) -> Result<T, Error<E>>
 where
@@ -47,10 +47,4 @@ mod time {
         Delay::new(duration)
     }
 
-    /// Wait until deadline is reached.
-    pub fn delay_until(deadline: Instant) -> Delay {
-        let mut delay = Delay::new(Duration::from_secs(1));
-        delay.reset(deadline);
-        delay
-    }
 }

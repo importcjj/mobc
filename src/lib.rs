@@ -97,7 +97,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 #[doc(hidden)]
-pub use time::{delay_for, delay_until, interval};
+pub use time::{delay_for, interval};
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
 
