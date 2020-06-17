@@ -18,11 +18,6 @@ async fn main() {
         let mut tx_c = tx.clone();
         tokio::spawn(async move {
             let mut conn = pool.get().await.unwrap();
-            // let s: String = redis::cmd("PING")
-            //     .query_async(&mut conn as &mut Connection)
-            //     .await
-            //     .unwrap();
-
             let s: String = conn.get("test").await.unwrap();
             assert_eq!(s.as_str(), "hello");
             tx_c.send(i).await.unwrap();

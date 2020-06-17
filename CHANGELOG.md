@@ -1,6 +1,10 @@
 
 # CHANGELOG
 
+## v0.5.11 2020-6-17
+
+* Upgrade the `future-timer`.
+
 ## v0.5.10 2020-6-3
 
 * Add a sync hook `validate` in the `Manager` trait to *quickly* determine connections are still valid when check-in
