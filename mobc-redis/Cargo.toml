@@ -10,7 +10,7 @@ description = "Async redis pool"
 
 [dependencies]
 mobc = { version = "0.5", path = ".." }
-redis = "0.15"
+redis = "0.16"
 
 [dev-dependencies]
 actix-web = "2.0.0"
