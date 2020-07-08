@@ -797,13 +797,12 @@ impl<M: Manager> Connection<M> {
 
 impl<M: Manager> Drop for Connection<M> {
     fn drop(&mut self) {
-            let pool = self.pool.take().unwrap();
-            let conn = self.conn.take().unwrap();
-            // FIXME: No clone!
-            pool.clone().0.manager.spawn_task(async move {
-                recycle_conn(&pool.0, conn).await;
-            });
-        
+        let pool = self.pool.take().unwrap();
+        let conn = self.conn.take().unwrap();
+        // FIXME: No clone!
+        pool.clone().0.manager.spawn_task(async move {
+            recycle_conn(&pool.0, conn).await;
+        });
     }
 }
 
