@@ -46,5 +46,4 @@ mod time {
     pub fn delay_for(duration: Duration) -> Delay {
         Delay::new(duration)
     }
-
 }

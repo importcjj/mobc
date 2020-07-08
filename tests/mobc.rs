@@ -901,6 +901,62 @@ fn test_is_brand_new() {
 }
 
 #[test]
+fn test_unwraps_raw_conn() {
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
+        }
+    }
+    let handler = Handler;
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_lifetime(Some(Duration::from_secs(10)))
+            .max_idle(10)
+            .max_open(10)
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..10 {
+            let conn = pool.get().await.unwrap();
+            let raw = conn.into_inner();
+            v.push(raw);
+        }
+        pool.get().await.unwrap();
+        delay_for(Duration::from_secs(1)).await;
+
+        assert_eq!(1_u64, pool.state().await.idle);
+        assert_eq!(1_u64, pool.state().await.connections);
+
+        drop(v);
+        assert_eq!(DROPPED.load(Ordering::SeqCst), 10);
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn test_timeout_when_db_has_gone() {
     struct Connection;
     struct Handler;
@@ -924,14 +980,15 @@ fn test_timeout_when_db_has_gone() {
     let mut rt = Runtime::new().unwrap();
     rt.block_on(async {
         const GET_TIMEOUT: Duration = Duration::from_secs(1);
-        let pool = Pool::builder().get_timeout(Some(GET_TIMEOUT)).build(Handler);
+        let pool = Pool::builder()
+            .get_timeout(Some(GET_TIMEOUT))
+            .build(Handler);
 
         let start = Instant::now();
         assert!(pool.get().await.is_err());
         assert!(start.elapsed() > GET_TIMEOUT);
         assert!(start.elapsed() < GET_TIMEOUT + Duration::from_millis(100));
         Ok::<(), Error<TestError>>(())
-
     })
     .unwrap();
 }
@@ -969,7 +1026,9 @@ fn test_timeout_when_db_has_gone2() {
     rt.block_on(async {
         const GET_TIMEOUT: Duration = Duration::from_secs(2);
         let handler = Handler(AtomicU32::new(0));
-        let pool = Pool::builder().get_timeout(Some(GET_TIMEOUT)).build(handler);
+        let pool = Pool::builder()
+            .get_timeout(Some(GET_TIMEOUT))
+            .build(handler);
 
         assert!(pool.get().await.is_ok());
 
@@ -978,7 +1037,6 @@ fn test_timeout_when_db_has_gone2() {
         assert!(start.elapsed() > GET_TIMEOUT);
         assert!(start.elapsed() < GET_TIMEOUT + Duration::from_millis(100));
         Ok::<(), Error<TestError>>(())
-
     })
     .unwrap();
 }
