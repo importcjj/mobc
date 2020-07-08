@@ -1,6 +1,9 @@
 
 # CHANGELOG
 
+## v0.5.12 2020-07-08
+* Add a new method `into_inner` to `connection` to unwrap the raw connection.
+
 ## v0.5.11 2020-6-17
 
 * Upgrade the `future-timer`.

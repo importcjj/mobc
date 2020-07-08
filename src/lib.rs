@@ -483,10 +483,7 @@ impl<M: Manager> Pool<M> {
         }
     }
 
-    async fn strategy_get(
-        &self,
-        strategy: GetStrategy,
-    ) -> Result<Connection<M>, Error<M::Error>> {
+    async fn strategy_get(&self, strategy: GetStrategy) -> Result<Connection<M>, Error<M::Error>> {
         let mut c = self.inner_strategy_ctx(strategy).await?;
 
         if !c.brand_new {
@@ -533,7 +530,6 @@ impl<M: Manager> Pool<M> {
         &self,
         strategy: GetStrategy,
     ) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
-
         let mut internals = self.0.internals.lock().await;
         let num_free = internals.free_conns.len();
         if strategy == GetStrategy::CachedOrNewConn && num_free > 0 {
@@ -556,7 +552,7 @@ impl<M: Manager> Pool<M> {
                 let mut internals = self.0.internals.lock().await;
                 internals.wait_duration += wait_start.elapsed();
 
-                return Ok(conn)
+                return Ok(conn);
             }
         }
 
@@ -792,16 +788,22 @@ impl<M: Manager> Connection<M> {
     pub fn is_brand_new(&self) -> bool {
         self.conn.as_ref().unwrap().brand_new
     }
+
+    /// Unwraps the raw database connection.
+    pub fn into_inner(mut self) -> M::Connection {
+        self.conn.as_mut().unwrap().raw.take().unwrap()
+    }
 }
 
 impl<M: Manager> Drop for Connection<M> {
     fn drop(&mut self) {
-        let pool = self.pool.take().unwrap();
-        let conn = self.conn.take().unwrap();
-        // FIXME: No clone!
-        pool.clone().0.manager.spawn_task(async move {
-            recycle_conn(&pool.0, conn).await;
-        });
+            let pool = self.pool.take().unwrap();
+            let conn = self.conn.take().unwrap();
+            // FIXME: No clone!
+            pool.clone().0.manager.spawn_task(async move {
+                recycle_conn(&pool.0, conn).await;
+            });
+        
     }
 }
 
