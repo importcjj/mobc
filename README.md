@@ -53,6 +53,7 @@ mobc = "0.5"
 | [tokio-postgres](https://github.com/sfackler/rust-postgres) | [mobc-postgres](https://github.com/importcjj/mobc-postgres) |
 | [redis](https://github.com/mitsuhiko/redis-rs)              | [mobc-redis](https://github.com/importcjj/mobc-redis)       |
 | [arangodb](https://github.com/fMeow/arangors)               | [mobc-arangors](https://github.com/inzanez/mobc-arangors)   |
+| [lapin](https://github.com/CleverCloud/lapin)               | [mobc-lapin](https://github.com/zupzup/mobc-lapin)   |
 
 More DB adaptors are welcome.
 
