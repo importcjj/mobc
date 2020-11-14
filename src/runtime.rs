@@ -22,16 +22,64 @@ pub trait Executor: Send + Sync + 'static + Clone {
 
 #[cfg(all(
     feature = "tokio",
-    not(any(feature = "tokio-02-alpha6-global", feature = "async-std"))
+    not(feature = "async-std")
 ))]
 mod runtime {
     use super::*;
-    pub use tokio::runtime::Handle as TaskExecutor;
-    pub use tokio::runtime::Runtime;
 
-    impl Executor for tokio::runtime::Handle {
-        fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-            tokio::runtime::Handle::spawn(self, future);
+    /// Wrapper of the Tokio Runtime
+    pub struct Runtime{
+        rt: tokio::runtime::Runtime,
+        spawner: TaskExecutor,
+    }
+    
+
+    impl Runtime {
+        /// Creates a new Runtime
+        pub fn new() -> Option<Self> {
+            Some(Runtime{
+                rt: tokio::runtime::Runtime::new().unwrap(),
+                spawner: TaskExecutor,
+            })
+        }
+
+        /// Returns a spawner
+        pub fn handle(&self) -> &TaskExecutor {
+            &self.spawner
+        }
+
+        /// Run a future to completion on the Tokio runtime. This is the
+        /// runtime's entry point.
+        pub fn block_on<F, T>(&mut self, future: F) -> T
+        where
+            F: Future<Output = T>,
+        {
+            self.rt.block_on(future)
+        }
+
+        /// Spawn a future onto the Tokio runtime.
+        pub fn spawn<F, T>(&self, future: F)
+        where
+            F: Future<Output = T> + Send + 'static,
+            T: Send + 'static,
+        {
+            self.rt.spawn(future);
+        }
+    }
+
+
+    /// Simple handler for spawning task
+    #[derive(Clone)]
+    pub struct TaskExecutor;
+
+    impl TaskExecutor {
+        /// Spawn a future onto the Tokio runtime.
+        pub fn spawn<F>(&self, future: F)
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            tokio::spawn(future);
         }
     }
 
@@ -53,27 +101,25 @@ mod runtime {
     }
 }
 
-// #[cfg(all(feature = "tokio-02-alpha6-global", not(feature = "async-std")))]
-// mod runtime {
-//     use super::*;
-//     pub use tokio02alpha6::excutor::DefaultExecutor;
-//     pub use tokio02alpha6::runtime::Runtime;
-//     pub use tokio02alpha6::runtime::TaskExecutor;
 
-//     impl<T> Executor for T
-//     where
-//         T: tokio02alpha6::executor::Executor + Send + Sync + 'static + Clone,
-//     {
-//         fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-//             tokio02alpha6::executor::Executor::spawn(self, future);
-//         }
-//     }
-// }
-
-#[cfg(all(feature = "async-std", not(feature = "tokio-02-alpha6-global")))]
+#[cfg(all(feature = "async-std", not(feature = "tokio")))]
 mod runtime {
     use super::*;
     use async_std::task;
+
+    #[derive(Clone)]
+    pub struct TaskExecutor;
+
+    impl TaskExecutor {
+        pub fn spawn<F>(&self, future: F)
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            task::spawn(future);
+        }
+    }
+
     pub struct Runtime(TaskExecutor);
 
     impl Runtime {
@@ -101,18 +147,6 @@ mod runtime {
         }
     }
 
-    #[derive(Clone)]
-    pub struct TaskExecutor;
-
-    impl TaskExecutor {
-        pub fn spawn<F>(&self, future: F)
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            task::spawn(future);
-        }
-    }
 
     #[derive(Clone)]
     pub struct DefaultExecutor;

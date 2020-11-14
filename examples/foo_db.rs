@@ -17,7 +17,7 @@ async fn main() {
         tokio::spawn(async move {
             let conn = pool.get().await.unwrap();
             let name = conn.query().await;
-            assert_eq!(name, "nori".to_string());
+            assert_eq!(name, "PONG".to_string());
             tx.send(()).await.unwrap();
         });
     }
