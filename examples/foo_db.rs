@@ -13,7 +13,7 @@ async fn main() {
     let now = Instant::now();
     for _ in 0..num {
         let pool = pool.clone();
-        let mut tx = tx.clone();
+        let tx = tx.clone();
         tokio::spawn(async move {
             let conn = pool.get().await.unwrap();
             let name = conn.query().await;

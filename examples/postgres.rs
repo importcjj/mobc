@@ -57,7 +57,7 @@ async fn main() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(16);
     for i in 0..MAX {
         let pool = pool.clone();
-        let mut tx_c = tx.clone();
+        let tx_c = tx.clone();
         tokio::spawn(async move {
             let client = pool.get().await.unwrap();
             let rows = client.query("SELECT 1 + 2", &[]).await.unwrap();
