@@ -1,7 +1,7 @@
 //! A batteries included runtime for applications using mobc.
 //! Mobc does not implement runtime, it simply exports runtime.
 
-pub use runtime::{DefaultExecutor, Runtime, TaskExecutor};
+pub use self::runtime::{DefaultExecutor, Runtime, TaskExecutor};
 
 use futures::Future;
 use std::pin::Pin;
