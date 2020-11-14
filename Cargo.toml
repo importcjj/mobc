@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.5.12"
+version = "0.5.13"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -18,15 +18,15 @@ unstable = []
 
 [dependencies]
 futures = "0.3"
-tokio = { version = "0.2", features=["rt-core", "time"], optional = true }
+tokio = { version = "0.3", features=["rt", "time"], optional = true }
 async-std = { version = "1.0", features=["unstable"], optional = true }
 async-trait = "0.1"
 futures-timer = "3.0.2"
 log = "0.4"
 
 [dev-dependencies]
-tokio = { version = "0.2", features = ["full"] }
-tokio-postgres = "=0.5.0-alpha.2"
+tokio = { version = "0.3", features = ["full"] }
+tokio-postgres = "=0.6.0"
 env_logger = "0.7"
 tide = "0.5"
 async-std = { version = "1.0", features = ["attributes"] }

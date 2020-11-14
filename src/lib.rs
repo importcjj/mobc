@@ -818,3 +818,4 @@ impl<M: Manager> DerefMut for Connection<M> {
         self.conn.as_mut().unwrap().raw.as_mut().unwrap()
     }
 }
+
