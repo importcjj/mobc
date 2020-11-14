@@ -1,7 +1,7 @@
 //! A batteries included runtime for applications using mobc.
 //! Mobc does not implement runtime, it simply exports runtime.
 
-pub use self::runtime::{DefaultExecutor, Runtime, TaskExecutor};
+pub use runtime::{DefaultExecutor, Runtime, TaskExecutor};
 
 use futures::Future;
 use std::pin::Pin;
@@ -102,7 +102,7 @@ mod runtime {
 }
 
 
-#[cfg(all(feature = "async-std", not(feature = "tokio")))]
+#[cfg(all(feature = "async-std"))]
 mod runtime {
     use super::*;
     use async_std::task;
