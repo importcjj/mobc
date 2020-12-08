@@ -1,5 +1,4 @@
 # mobc-redis
-=============
 
 [![crates.io](https://img.shields.io/badge/crates.io-latest-%23dea584)](https://crates.io/crates/mobc-redis)
 
