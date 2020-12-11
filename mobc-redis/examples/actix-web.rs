@@ -1,6 +1,6 @@
 use actix_web::{web, App, HttpServer, Responder};
+use mobc_redis::redis::AsyncCommands;
 use mobc_redis::RedisConnectionManager;
-use redis::AsyncCommands;
 
 type Pool = mobc::Pool<RedisConnectionManager>;
 

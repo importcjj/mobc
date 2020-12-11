@@ -1,6 +1,6 @@
 use mobc::Pool;
+use mobc_redis::redis::AsyncCommands;
 use mobc_redis::RedisConnectionManager;
-use redis::AsyncCommands;
 use std::time::Instant;
 
 #[tokio::main]

@@ -12,11 +12,14 @@ keywords = ["redis", "pool", "async", "await"]
 
 [dependencies]
 mobc = { version = "0.6", path = ".." }
-redis = { version = "0.18", features = ["aio"] }
+redis = { version = "0.18", optional = true }
+
+[features]
+default = ["mobc/tokio", "redis/tokio-comp"]
+async-std = ["mobc/async-std", "redis/async-std-comp"]
 
 [dev-dependencies]
 actix-web = "2.0.0"
 actix-rt = "1.0"
 actix-http = "1.0"
 tokio = { version = "0.3", features = ["full"]}
-redis = { version = "0.18", features = ["tokio-comp"] }

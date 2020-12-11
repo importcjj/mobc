@@ -9,7 +9,7 @@
 ```rust
 use mobc::Pool;
 use mobc_redis::RedisConnectionManager;
-use redis::AsyncCommands;
+use mobc_redis::redis::AsyncCommands;;
 use std::time::Instant;
 
 #[tokio::main]
@@ -44,20 +44,4 @@ async fn main() {
 
 You can use either [tokio](https://github.com/tokio-rs/tokio), or [async-std](https://github.com/async-rs/async-std) as your async runtime.
 
-You need to use a different dependency setup for them, though and you have to set the [redis-rs](https://github.com/mitsuhiko/redis-rs) dependency yourself to either `tokio-comp`, or `async-std-comp`.
-
-### tokio
-
-```
-mobc = "0.6"
-mobc-redis = "0.6"
-redis = { version = "0.18", features = ["tokio-comp"] }
-```
-
-### async-std
-
-```
-mobc = {version = "0.6", features = ["async-std"] }
-mobc-redis = "0.6"
-redis = { version = "0.18", features = ["async-std-comp"] }
-```
+The default is `tokio`, but you can use `async-std` by setting it in the `mobc-redis` features.
