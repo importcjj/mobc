@@ -1,8 +1,7 @@
 use mobc::async_trait;
 use mobc::Manager;
-pub use redis;
-pub use redis::aio::Connection;
-pub use redis::AsyncCommands;
+use redis;
+use redis::aio::Connection;
 use redis::{Client, ErrorKind};
 
 pub struct RedisConnectionManager {
