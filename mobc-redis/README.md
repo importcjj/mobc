@@ -1,3 +1,12 @@
+# mobc-redis
+
+[![crates.io](https://img.shields.io/badge/crates.io-latest-%23dea584)](https://crates.io/crates/mobc-redis)
+
+[Documentation](https://docs.rs/mobc-redis)
+
+## Example 
+
+```rust
 use mobc::Pool;
 use mobc_redis::RedisConnectionManager;
 use redis::AsyncCommands;
@@ -29,3 +38,26 @@ async fn main() {
 
     println!("cost: {:?}", now.elapsed());
 }
+```
+
+## Runtimes
+
+You can use either [tokio](https://github.com/tokio-rs/tokio), or [async-std](https://github.com/async-rs/async-std) as your async runtime.
+
+You need to use a different dependency setup for them, though and you have to set the [redis-rs](https://github.com/mitsuhiko/redis-rs) dependency yourself to either `tokio-comp`, or `async-std-comp`.
+
+### tokio
+
+```
+mobc = "0.6"
+mobc-redis = "0.6"
+redis = { version = "0.18", features = ["tokio-comp"] }
+```
+
+### async-std
+
+```
+mobc = {version = "0.6", features = ["async-std"] }
+mobc-redis = "0.6"
+redis = { version = "0.18", features = ["async-std-comp"] }
+```
