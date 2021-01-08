@@ -81,13 +81,13 @@ mod time;
 pub use async_trait::async_trait;
 pub use config::Builder;
 use config::{Config, InternalConfig, ShareConfig};
-use futures::channel::mpsc::{self, Receiver, Sender};
-use futures::channel::oneshot::{self, Sender as ReqSender};
-use futures::lock::{Mutex, MutexGuard};
-use futures::select;
-use futures::FutureExt;
-use futures::SinkExt;
-use futures::StreamExt;
+use futures_channel::mpsc::{self, Receiver, Sender};
+use futures_channel::oneshot::{self, Sender as ReqSender};
+use futures_util::lock::{Mutex, MutexGuard};
+use futures_util::select;
+use futures_util::FutureExt;
+use futures_util::SinkExt;
+use futures_util::StreamExt;
 pub use spawn::spawn;
 use std::collections::HashMap;
 use std::error;
@@ -818,4 +818,3 @@ impl<M: Manager> DerefMut for Connection<M> {
         self.conn.as_mut().unwrap().raw.as_mut().unwrap()
     }
 }
-

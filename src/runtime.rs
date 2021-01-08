@@ -3,7 +3,7 @@
 
 pub use runtime::{DefaultExecutor, Runtime, TaskExecutor};
 
-use futures::Future;
+use std::future::Future;
 use std::pin::Pin;
 
 // A new type exports the default executor of Tokio..
@@ -20,24 +20,20 @@ pub trait Executor: Send + Sync + 'static + Clone {
     fn spawn(&mut self, future: Pin<Box<dyn Future<Output = ()> + Send>>);
 }
 
-#[cfg(all(
-    feature = "tokio",
-    not(feature = "async-std")
-))]
+#[cfg(all(feature = "tokio", not(feature = "async-std")))]
 mod runtime {
     use super::*;
 
     /// Wrapper of the Tokio Runtime
-    pub struct Runtime{
+    pub struct Runtime {
         rt: tokio::runtime::Runtime,
         spawner: TaskExecutor,
     }
-    
 
     impl Runtime {
         /// Creates a new Runtime
         pub fn new() -> Option<Self> {
-            Some(Runtime{
+            Some(Runtime {
                 rt: tokio::runtime::Runtime::new().unwrap(),
                 spawner: TaskExecutor,
             })
@@ -66,7 +62,6 @@ mod runtime {
             self.rt.spawn(future);
         }
     }
-
 
     /// Simple handler for spawning task
     #[derive(Clone)]
@@ -100,7 +95,6 @@ mod runtime {
         }
     }
 }
-
 
 #[cfg(all(feature = "async-std"))]
 mod runtime {
@@ -146,7 +140,6 @@ mod runtime {
             task::spawn(future);
         }
     }
-
 
     #[derive(Clone)]
     pub struct DefaultExecutor;
