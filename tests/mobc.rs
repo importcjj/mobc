@@ -967,12 +967,12 @@ fn test_timeout_when_db_has_gone() {
         type Error = TestError;
 
         async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-            futures::future::pending::<()>().await;
+            futures_util::future::pending::<()>().await;
             Ok(Connection)
         }
 
         async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-            futures::future::pending::<()>().await;
+            futures_util::future::pending::<()>().await;
             Ok(conn)
         }
     }
@@ -1007,7 +1007,7 @@ fn test_timeout_when_db_has_gone2() {
 
         async fn connect(&self) -> Result<Self::Connection, Self::Error> {
             if self.0.load(Ordering::Relaxed) > 0 {
-                futures::future::pending::<()>().await;
+                futures_util::future::pending::<()>().await;
             } else {
                 self.0.fetch_add(1, Ordering::Relaxed);
             }
@@ -1016,7 +1016,7 @@ fn test_timeout_when_db_has_gone2() {
 
         async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
             if self.0.load(Ordering::Relaxed) > 0 {
-                futures::future::pending::<()>().await;
+                futures_util::future::pending::<()>().await;
             }
             Ok(conn)
         }

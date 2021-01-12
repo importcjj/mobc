@@ -1,5 +1,5 @@
 use crate::Error;
-use futures::FutureExt;
+use futures_util::{select, FutureExt};
 use std::future::Future;
 use std::time::Duration;
 pub use time::{delay_for, interval};
@@ -8,7 +8,7 @@ pub(crate) async fn timeout<F, T, E>(duration: Duration, f: F) -> Result<T, Erro
 where
     F: Future<Output = Result<T, Error<E>>>,
 {
-    futures::select! {
+    select! {
         () = delay_for(duration).fuse() => Err(Error::Timeout),
         rsp = f.fuse() => rsp,
     }
