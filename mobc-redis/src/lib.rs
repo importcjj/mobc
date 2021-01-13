@@ -1,6 +1,8 @@
+pub use redis;
+pub use mobc;
+
 use mobc::async_trait;
 use mobc::Manager;
-use redis;
 use redis::aio::Connection;
 use redis::{Client, ErrorKind};
 
@@ -32,3 +34,5 @@ impl Manager for RedisConnectionManager {
         Ok(conn)
     }
 }
+
+

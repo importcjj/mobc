@@ -1,0 +1,12 @@
+language: rust
+rust:
+  - stable
+  - nightly
+
+matrix:
+  allow_failures:
+    - rust: stable
+  fast_finish: true
+
+script:
+  - RUST_BACKTRACE=1 cargo test --verbose --all
