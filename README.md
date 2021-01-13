@@ -30,10 +30,10 @@ Inspired by r2d2 and Golang SQL package.
 
 ```toml
 [dependencies]
-mobc = "0.5"
+mobc = "0.7"
 
 # For async-std runtime
-# mobc = { version = "0.5", features = ["async-std"] }
+# mobc = { version = "0.7", features = ["async-std"] }
 ```
 
 
