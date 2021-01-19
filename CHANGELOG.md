@@ -1,6 +1,9 @@
 
 # CHANGELOG
 
+## v0.7.0 2021-1-19
+* Compatible with Tokio 1.0
+
 ## v0.5.12 2020-07-08
 * Add a new method `into_inner` to `connection` to unwrap the raw connection.
 
