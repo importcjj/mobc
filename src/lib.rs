@@ -653,17 +653,17 @@ async fn put_conn<M: Manager>(
 
     conn.brand_new = false;
 
-    if internals.conn_requests.len() > 0 {
+    while internals.conn_requests.len() > 0 {
         let req = internals.conn_requests.pop_front().unwrap();
         internals.wait_count -= 1;
 
         if req.is_canceled() {
-            return put_idle_conn(shared, internals, conn);
+            continue;
         }
 
-        // FIXME
-        if let Err(conn) = req.send(conn) {
-            return put_idle_conn(shared, internals, conn);
+        if let Err(c) = req.send(conn) {
+            conn = c;
+            continue;
         }
         return;
     }
