@@ -89,7 +89,7 @@ use futures_util::FutureExt;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 pub use spawn::spawn;
-use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::error;
 use std::fmt;
 use std::future::Future;
@@ -245,11 +245,10 @@ struct PoolInternals<C, E> {
     config: InternalConfig,
     opener_ch: Sender<()>,
     free_conns: Vec<Conn<C, E>>,
-    conn_requests: HashMap<u64, ReqSender<Conn<C, E>>>,
+    conn_requests: VecDeque<ReqSender<Conn<C, E>>>,
     num_open: u64,
     max_lifetime_closed: u64,
     max_idle_closed: u64,
-    next_request_id: u64,
     wait_count: u64,
     wait_duration: Duration,
     cleaner_ch: Option<Sender<()>>,
@@ -421,10 +420,9 @@ impl<M: Manager> Pool<M> {
         let internals = Mutex::new(PoolInternals {
             config: internal_config,
             free_conns: vec![],
-            conn_requests: HashMap::new(),
+            conn_requests: VecDeque::new(),
             num_open: 0,
             max_lifetime_closed: 0,
-            next_request_id: 0,
             wait_count: 0,
             max_idle_closed: 0,
             opener_ch: opener_ch_sender,
@@ -540,10 +538,8 @@ impl<M: Manager> Pool<M> {
         if internals.config.max_open > 0 {
             if internals.num_open >= internals.config.max_open {
                 let (req_sender, req_recv) = oneshot::channel();
-                let req_key = internals.next_request_id;
-                internals.next_request_id += 1;
                 internals.wait_count += 1;
-                internals.conn_requests.insert(req_key, req_sender);
+                internals.conn_requests.push_back(req_sender);
                 // release
                 drop(internals);
 
@@ -658,8 +654,8 @@ async fn put_conn<M: Manager>(
     conn.brand_new = false;
 
     if internals.conn_requests.len() > 0 {
-        let key = internals.conn_requests.keys().next().unwrap().clone();
-        let req = internals.conn_requests.remove(&key).unwrap();
+        let req = internals.conn_requests.pop_front().unwrap();
+        internals.wait_count -= 1;
 
         if req.is_canceled() {
             return put_idle_conn(shared, internals, conn);
