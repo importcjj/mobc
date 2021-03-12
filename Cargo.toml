@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -28,7 +28,7 @@ log = "0.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-tokio-postgres = "=0.6.0"
+tokio-postgres = "0.7.0"
 env_logger = "0.7"
 tide = "0.5"
 async-std = { version = "1.0", features = ["attributes"] }

@@ -1,6 +1,10 @@
 
 # CHANGELOG
 
+## v0.7.1 2021-3-12
+
+* Optimize the internal get requests queue.
+
 ## v0.7.0 2021-1-19
 * Compatible with Tokio 1.0
 
