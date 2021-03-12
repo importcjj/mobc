@@ -1,3 +1,4 @@
+use futures_util::future::{join, ready, FutureExt};
 use mobc::async_trait;
 use mobc::delay_for;
 use mobc::runtime::Runtime;
@@ -1036,6 +1037,58 @@ fn test_timeout_when_db_has_gone2() {
         assert!(pool.get().await.is_err());
         assert!(start.elapsed() > GET_TIMEOUT);
         assert!(start.elapsed() < GET_TIMEOUT + Duration::from_millis(100));
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_requests_fifo() {
+    let mut rt = Runtime::new().unwrap();
+    let handler = OkManager;
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(1).build(handler);
+
+        let first = pool.get().await;
+        assert!(first.is_ok());
+
+        let second = pool.get().then(|conn| {
+            assert!(conn.is_ok());
+            drop(conn);
+            ready(Instant::now())
+        });
+
+        let third = pool.get().then(|conn| {
+            assert!(conn.is_ok());
+            drop(conn);
+            ready(Instant::now())
+        });
+
+        drop(first);
+        let result = join(second, third).await;
+        assert!(result.0 < result.1);
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_requests_skip_canceled() {
+    let mut rt = Runtime::new().unwrap();
+    let handler = OkManager;
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(1).build(handler);
+
+        let first = pool.get().await;
+        assert!(first.is_ok());
+
+        let second = pool.get();
+        drop(second);
+
+        let third = pool.get();
+
+        drop(first);
+        assert!(third.await.is_ok());
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
