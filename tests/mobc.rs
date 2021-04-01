@@ -348,6 +348,47 @@ fn test_invalid_conn() {
 }
 
 #[test]
+fn test_invalid_conn_recovery() {
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Handler {
+        num: AtomicIsize,
+    }
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = FakeConnection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(FakeConnection(true))
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
+                Ok(conn)
+            } else {
+                Err(TestError)
+            }
+        }
+    }
+
+    let handler = Handler {
+        num: AtomicIsize::new(0),
+    };
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(1).build(handler);
+
+        assert!(pool.get().await.is_ok());
+
+        assert!(pool.get().await.is_ok());
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn test_lazy_initialization_failure() {
     let mut rt = Runtime::new().unwrap();
     let handler = NthConnectFailManager {
