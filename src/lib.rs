@@ -506,9 +506,9 @@ impl<M: Manager> Pool<M> {
                         c.last_checked_at = Instant::now();
                         c.raw = Some(raw)
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         internals.num_open -= 1;
-                        return Err(Error::Inner(e));
+                        return Err(Error::BadConn);
                     }
                 }
             }
