@@ -193,7 +193,7 @@ fn test_drop_on_checkout() {
         delay_for(Duration::from_secs(1)).await;
         assert!(!DROPPED.load(Ordering::SeqCst));
 
-        assert!(pool.get().await.is_err());
+        assert!(pool.get().await.is_ok());
         assert!(DROPPED.load(Ordering::SeqCst));
 
         Ok::<(), Error<TestError>>(())
@@ -296,7 +296,7 @@ fn test_health_check_interval() {
         assert!(!DROPPED.load(Ordering::SeqCst));
 
         delay_for(Duration::from_millis(600)).await;
-        assert!(pool.get().await.is_err());
+        assert!(pool.get().await.is_ok());
         assert!(DROPPED.load(Ordering::SeqCst));
 
         Ok::<(), Error<TestError>>(())
@@ -339,9 +339,9 @@ fn test_invalid_conn() {
 
         assert!(pool.get().await.is_ok());
         delay_for(Duration::from_secs(1)).await;
-        assert!(pool.get().await.is_err());
+        assert!(pool.get().await.is_ok());
         assert!(DROPPED.load(Ordering::SeqCst));
-        assert_eq!(0_u64, pool.state().await.connections);
+        assert_eq!(1_u64, pool.state().await.connections);
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
