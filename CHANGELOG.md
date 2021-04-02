@@ -1,6 +1,10 @@
 
 # CHANGELOG
 
+## v0.7.2 2021-4-2
+
+* Retry when connection check fails on checkout
+
 ## v0.7.1 2021-3-12
 
 * Optimize the internal get requests queue.
