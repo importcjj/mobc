@@ -55,6 +55,7 @@ mobc = "0.7"
 | [arangodb](https://github.com/fMeow/arangors)               | [mobc-arangors](https://github.com/inzanez/mobc-arangors)   |
 | [lapin](https://github.com/CleverCloud/lapin)               | [mobc-lapin](https://github.com/zupzup/mobc-lapin)          |
 | [reql](https://github.com/rethinkdb/rethinkdb-rs)           | [mobc-reql](https://github.com/rethinkdb/rethinkdb-rs)      |
+| [redis-cluster](https://docs.rs/redis_cluster_async/0.6.0/redis_cluster_async/index.html)                                           | [mobc-redis-cluster](https://github.com/rogeriob2br/mobc-redis-cluster)|
 
 More DB adaptors are welcome.
 
