@@ -248,6 +248,7 @@ struct PoolInternals<C, E> {
     conn_requests: VecDeque<ReqSender<Conn<C, E>>>,
     num_open: u64,
     max_lifetime_closed: u64,
+    max_idle_lifetime_closed: u64,
     max_idle_closed: u64,
     wait_count: u64,
     wait_duration: Duration,
@@ -292,6 +293,8 @@ pub struct State {
     pub max_idle_closed: u64,
     /// The total number of connections closed due to `max_lifetime`.
     pub max_lifetime_closed: u64,
+    /// The total number of connections closed due to `max_idle_lifetime`.
+    pub max_idle_lifetime_closed: u64,
 }
 
 impl fmt::Debug for State {
@@ -305,6 +308,7 @@ impl fmt::Debug for State {
             .field("wait_duration", &self.wait_duration)
             .field("max_idle_closed", &self.max_idle_closed)
             .field("max_lifetime_closed", &self.max_lifetime_closed)
+            .field("max_idle_lifetime_closed", &self.max_idle_lifetime_closed)
             .finish()
     }
 }
@@ -371,10 +375,8 @@ impl<M: Manager> Pool<M> {
 
     /// Sets the maximum lifetime of connections in the pool.
     ///
-    /// Expired connections may be closed lazily before reuse.
-    ///
-    /// None meas reuse forever.
-    /// Defaults to None.
+    /// - `None` means reuse forever.
+    /// - Defaults to `None`.
     ///
     /// # Panics
     ///
@@ -385,8 +387,8 @@ impl<M: Manager> Pool<M> {
             Some(Duration::from_secs(0)),
             "max_lifetime must be positive"
         );
+
         let mut internals = self.0.internals.lock().await;
-        internals.config.max_lifetime = max_lifetime;
         if let Some(lifetime) = max_lifetime {
             match internals.config.max_lifetime {
                 Some(prev) if lifetime < prev && internals.cleaner_ch.is_some() => {
@@ -395,9 +397,45 @@ impl<M: Manager> Pool<M> {
                 }
                 _ => (),
             }
+            self.start_conn_cleaner(&mut internals);
         }
+        internals.config.max_lifetime = max_lifetime;
+    }
 
-        if max_lifetime.is_some() && internals.num_open > 0 && internals.cleaner_ch.is_none() {
+    /// Sets the maximum idle lifetime of connections in the pool.
+    ///
+    /// - `None` means reuse forever.
+    /// - Defaults to `None`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_idle_lifetime` is the zero `Duration`.
+    pub async fn set_conn_max_idle_lifetime(&self, max_idle_lifetime: Option<Duration>) {
+        assert_ne!(
+            max_idle_lifetime,
+            Some(Duration::from_secs(0)),
+            "max_idle_lifetime must be positive"
+        );
+
+        let mut internals = self.0.internals.lock().await;
+        if let Some(lifetime) = max_idle_lifetime {
+            match internals.config.max_idle_lifetime {
+                Some(prev) if lifetime < prev && internals.cleaner_ch.is_some() => {
+                    // FIXME
+                    let _ = internals.cleaner_ch.as_mut().unwrap().send(()).await;
+                }
+                _ => (),
+            }
+            self.start_conn_cleaner(&mut internals)
+        }
+        internals.config.max_idle_lifetime = max_idle_lifetime;
+    }
+
+    fn start_conn_cleaner(
+        &self,
+        internals: &mut MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
+    ) {
+        if internals.cleaner_ch.is_none() {
             log::debug!("run connection cleaner");
             let shared1 = Arc::downgrade(&self.0);
             let clean_rate = self.0.config.clean_rate;
@@ -415,6 +453,13 @@ impl<M: Manager> Pool<M> {
         } else {
             config.max_open as usize
         };
+        let (cleaner_ch_sender, cleaner_ch) =
+            if config.max_lifetime.is_some() || config.max_idle_lifetime.is_some() {
+                let (cleaner_ch_sender, cleaner_ch) = mpsc::channel(1);
+                (Some(cleaner_ch_sender), Some(cleaner_ch))
+            } else {
+                (None, None)
+            };
         let (opener_ch_sender, mut opener_ch) = mpsc::channel(max_open);
         let (share_config, internal_config) = config.split();
         let internals = Mutex::new(PoolInternals {
@@ -423,11 +468,12 @@ impl<M: Manager> Pool<M> {
             conn_requests: VecDeque::new(),
             num_open: 0,
             max_lifetime_closed: 0,
+            max_idle_lifetime_closed: 0,
             wait_count: 0,
             max_idle_closed: 0,
             opener_ch: opener_ch_sender,
             wait_duration: Duration::from_secs(0),
-            cleaner_ch: None,
+            cleaner_ch: cleaner_ch_sender,
         });
         let shared = Arc::new(SharedPool {
             config: share_config,
@@ -441,6 +487,14 @@ impl<M: Manager> Pool<M> {
                 open_new_connection(&shared1).await;
             }
         });
+
+        if cleaner_ch.is_some() {
+            let shared2 = Arc::downgrade(&shared);
+            let clean_rate = shared.config.clean_rate;
+            shared.manager.spawn_task(async move {
+                connection_cleaner(shared2, cleaner_ch.unwrap(), clean_rate).await;
+            });
+        }
 
         Pool(shared)
     }
@@ -590,6 +644,7 @@ impl<M: Manager> Pool<M> {
             wait_duration: internals.wait_duration,
             max_idle_closed: internals.max_idle_closed,
             max_lifetime_closed: internals.max_lifetime_closed,
+            max_idle_lifetime_closed: internals.max_idle_lifetime_closed,
         }
     }
 }
@@ -739,13 +794,26 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
     log::debug!("Clean connections");
 
     let mut internals = shared.internals.lock().await;
-    if internals.num_open == 0 || internals.config.max_lifetime.is_none() {
+    if internals.config.max_lifetime.is_none() && internals.config.max_idle_lifetime.is_none() {
         internals.cleaner_ch.take();
         return false;
     }
+    if internals.num_open == 0 {
+        return true;
+    }
 
-    let expired = Instant::now() - internals.config.max_lifetime.unwrap();
+    let expired = if let Some(lifetime) = internals.config.max_lifetime {
+        Some(Instant::now() - lifetime)
+    } else {
+        None
+    };
     let mut closing = vec![];
+    let idle_expired = if let Some(lifetime) = internals.config.max_idle_lifetime {
+        Some(Instant::now() - lifetime)
+    } else {
+        None
+    };
+    let mut idle_closing = vec![];
 
     let mut i = 0;
     log::debug!(
@@ -758,11 +826,17 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
             break;
         }
 
-        if internals.free_conns[i].created_at < expired {
+        if expired.is_some() && internals.free_conns[i].created_at < expired.unwrap() {
             let c = internals.free_conns.swap_remove(i);
             closing.push(c);
             continue;
         }
+        if idle_expired.is_some() && internals.free_conns[i].last_used_at < idle_expired.unwrap() {
+            let c = internals.free_conns.swap_remove(i);
+            idle_closing.push(c);
+            continue;
+        }
+
         i += 1;
     }
 
@@ -770,6 +844,11 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
     for conn in closing {
         conn.close(&mut internals);
     }
+    internals.max_idle_lifetime_closed += idle_closing.len() as u64;
+    for conn in idle_closing {
+        conn.close(&mut internals);
+    }
+
     return true;
 }
 

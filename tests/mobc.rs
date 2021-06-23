@@ -402,7 +402,7 @@ fn test_lazy_initialization_failure() {
         let err = pool.get().await.err().unwrap();
         match err {
             Error::Inner(TestError) => (),
-            _ => panic!("{:?} expected"),
+            _ => panic!("{:?} expected", TestError),
         }
 
         Ok::<(), Error<TestError>>(())
@@ -445,7 +445,7 @@ fn test_idle_timeout_partial_use() {
 
     struct Handler {
         num: AtomicIsize,
-    };
+    }
 
     #[async_trait]
     impl Manager for Handler {
@@ -489,6 +489,56 @@ fn test_idle_timeout_partial_use() {
 }
 
 #[test]
+fn test_max_lifetime() {
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
+        }
+    }
+    let handler = Handler;
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_open(5)
+            .max_lifetime(Some(Duration::from_secs(1)))
+            .get_timeout(Some(Duration::from_secs(1)))
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+        drop(v);
+        delay_for(Duration::from_secs(2)).await;
+
+        assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn test_max_lifetime_lazy() {
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
     let mut rt: Runtime = Runtime::new().unwrap();
@@ -522,7 +572,7 @@ fn test_max_lifetime_lazy() {
             .max_open(5)
             .max_lifetime(Some(Duration::from_secs(1)))
             .get_timeout(Some(Duration::from_secs(1)))
-            .clean_rate(Duration::from_secs(1))
+            .clean_rate(Duration::from_secs(100))
             .build(handler);
 
         let mut v = vec![];
@@ -547,7 +597,6 @@ fn test_max_lifetime_lazy() {
 
 #[test]
 fn test_set_conn_max_lifetime() {
-    env_logger::init();
     static DROPPED: AtomicUsize = AtomicUsize::new(0);
     let mut rt: Runtime = Runtime::new().unwrap();
 
@@ -559,9 +608,7 @@ fn test_set_conn_max_lifetime() {
         }
     }
 
-    struct Handler {
-        num: AtomicIsize,
-    };
+    struct Handler;
 
     #[async_trait]
     impl Manager for Handler {
@@ -569,25 +616,18 @@ fn test_set_conn_max_lifetime() {
         type Error = TestError;
 
         async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-            if self.num.fetch_sub(1, Ordering::SeqCst) > 0 {
-                Ok(Connection)
-            } else {
-                Err(TestError)
-            }
+            Ok(Connection)
         }
 
         async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
             Ok(conn)
         }
     }
-    let handler = Handler {
-        num: AtomicIsize::new(5),
-    };
+    let handler = Handler;
     rt.block_on(async {
         let pool = Pool::builder()
             .max_open(5)
             .max_idle(5)
-            .max_lifetime(Some(Duration::from_secs(1)))
             .get_timeout(Some(Duration::from_secs(1)))
             .clean_rate(Duration::from_secs(1))
             .build(handler);
@@ -661,6 +701,59 @@ fn test_max_idle_lifetime() {
         }
         assert_eq!(0, DROPPED.load(Ordering::SeqCst));
         drop(v);
+        delay_for(Duration::from_millis(2000)).await;
+
+        assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_max_idle_lifetime_lazy() {
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
+        }
+    }
+    let handler = Handler;
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_open(5)
+            .max_idle(5)
+            .max_idle_lifetime(Some(Duration::from_secs(1)))
+            .clean_rate(Duration::from_secs(100))
+            .get_timeout(Some(Duration::from_secs(1)))
+            .test_on_check_out(false)
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+        drop(v);
         delay_for(Duration::from_millis(500)).await;
 
         let mut v = vec![];
@@ -683,6 +776,127 @@ fn test_max_idle_lifetime() {
         for _ in 0..5 {
             v.push(pool.get().await.unwrap());
         }
+        assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_set_conn_max_idle_lifetime() {
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
+        }
+    }
+    let handler = Handler;
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_open(5)
+            .max_idle(5)
+            .get_timeout(Some(Duration::from_secs(1)))
+            .clean_rate(Duration::from_secs(1))
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+
+        drop(v);
+
+        let conn = pool.get().await.unwrap();
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+        delay_for(Duration::from_secs(2)).await;
+
+        pool.set_conn_max_idle_lifetime(Some(Duration::from_secs(1)))
+            .await;
+        delay_for(Duration::from_secs(4)).await;
+        assert_eq!(4, DROPPED.load(Ordering::SeqCst));
+        drop(conn);
+        delay_for(Duration::from_secs(2)).await;
+        assert_eq!(5, DROPPED.load(Ordering::SeqCst));
+
+        assert_eq!(5_u64, pool.state().await.max_idle_lifetime_closed);
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_stop_cleaner() {
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    let mut rt: Runtime = Runtime::new().unwrap();
+
+    struct Connection;
+
+    impl Drop for Connection {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct Handler;
+
+    #[async_trait]
+    impl Manager for Handler {
+        type Connection = Connection;
+        type Error = TestError;
+
+        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+            Ok(Connection)
+        }
+
+        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+            Ok(conn)
+        }
+    }
+    let handler = Handler;
+    rt.block_on(async {
+        let pool = Pool::builder()
+            .max_open(5)
+            .max_idle(5)
+            .max_lifetime(Some(Duration::from_secs(1)))
+            .get_timeout(Some(Duration::from_secs(1)))
+            .clean_rate(Duration::from_secs(1))
+            .build(handler);
+
+        let mut v = vec![];
+        for _ in 0..5 {
+            v.push(pool.get().await.unwrap());
+        }
+        drop(v);
+
+        pool.set_conn_max_lifetime(None).await;
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+        delay_for(Duration::from_secs(2)).await;
+        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
+
+        pool.set_conn_max_idle_lifetime(Some(Duration::from_secs(1)))
+            .await;
+        delay_for(Duration::from_secs(2)).await;
         assert_eq!(5, DROPPED.load(Ordering::SeqCst));
 
         Ok::<(), Error<TestError>>(())

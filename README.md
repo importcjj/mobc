@@ -107,11 +107,15 @@ Sets the maximum idle connection count maintained by the pool. The pool will mai
 
 #### max_lifetime
 Sets the maximum lifetime of connections in the pool. Expired connections may be closed lazily before reuse.
->None meas reuse forever, defaults to None.
+>None means reuse forever, defaults to None.
+
+#### max_idle_lifetime
+Sets the maximum idle lifetime of connections in the pool. Expired connections may be closed lazily before reuse.
+>None means reuse forever, defaults to None.
 
 #### get_timeout
 Sets the get timeout used by the pool. Calls to Pool::get will wait this long for a connection to become available before returning an error. 
->None meas never timeout, defaults to 30 seconds.
+>None means never timeout, defaults to 30 seconds.
 
 
 ## Variable
@@ -121,6 +125,7 @@ Some of the connection pool configurations can be adjusted dynamically. Each con
 * set_max_open_conns
 * set_max_idle_conns
 * set_conn_max_lifetime
+* set_conn_max_idle_lifetime
 
 ## Stats
 * max_open - Maximum number of open connections to the database.
@@ -131,8 +136,7 @@ Some of the connection pool configurations can be adjusted dynamically. Each con
 * wait_duration - The total time blocked waiting for a new connection.
 * max_idle_closed - The total number of connections closed due to max_idle.
 * max_lifetime_closed - The total number of connections closed due to max_lifetime.
+* max_lifetime_idle_closed - The total number of connections closed due to max_idle_lifetime.
 
 ## Compatibility
 Because tokio is not compatible with other runtimes, such as async-std. So a database driver written with tokio cannot run in the async-std runtime. For example, you can't use redis-rs in tide because it uses tokio, so the connection pool which bases on redis-res can't be used in tide either.
-
-
