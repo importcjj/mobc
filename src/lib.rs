@@ -802,17 +802,15 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
         return true;
     }
 
-    let expired = if let Some(lifetime) = internals.config.max_lifetime {
-        Some(Instant::now() - lifetime)
-    } else {
-        None
-    };
+    let expired = internals
+        .config
+        .max_lifetime
+        .map(|lifetime| Instant::now() - lifetime);
     let mut closing = vec![];
-    let idle_expired = if let Some(lifetime) = internals.config.max_idle_lifetime {
-        Some(Instant::now() - lifetime)
-    } else {
-        None
-    };
+    let idle_expired = internals
+        .config
+        .max_idle_lifetime
+        .map(|lifetime| Instant::now() - lifetime);
     let mut idle_closing = vec![];
 
     let mut i = 0;
