@@ -34,6 +34,9 @@ mobc = "0.7"
 
 # For async-std runtime
 # mobc = { version = "0.7", features = ["async-std"] }
+
+# For actix-rt 1.0
+# mobc = { version = "0.7", features = ["actix-rt"] }
 ```
 
 

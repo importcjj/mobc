@@ -1,6 +1,10 @@
 
 # CHANGELOG
 
+## v0.7.3 2021-6-25
+
+* Support the actix-rt v1.0.
+
 ## v0.7.2 2021-4-2
 
 * Retry when connection check fails on checkout

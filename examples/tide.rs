@@ -5,15 +5,16 @@ use tide::Request;
 
 type Pool = mobc::Pool<FooManager>;
 
-async fn ping(req: Request<Pool>) -> String {
+async fn ping(req: Request<Pool>) -> tide::Result {
     let pool = req.state();
     let conn = pool.get().await.unwrap();
-    conn.query().await
+    Ok(conn.query().await.into())
 }
+
 #[async_std::main]
 async fn main() {
     let manager = FooManager;
-    let pool = Pool::builder().max_open(100).build(manager);
+    let pool = Pool::builder().max_open(12).build(manager);
 
     let mut app = tide::with_state(pool);
     app.at("/").get(ping);

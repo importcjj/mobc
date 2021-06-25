@@ -10,7 +10,7 @@ async fn ping(pool: web::Data<Pool>) -> impl Responder {
     conn.query().await
 }
 
-#[actix_rt::main]
+#[actix_web::main]
 async fn main() {
     let pool = Pool::builder().max_open(100).build(FooManager);
 
