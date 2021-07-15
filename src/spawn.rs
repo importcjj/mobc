@@ -1,5 +1,14 @@
 use std::future::Future;
 
+enum Runtime {
+    #[cfg(feature = "tokio-comp")]
+    Tokio,
+    #[cfg(feature = "async-std-comp")]
+    AsyncStd,
+    #[cfg(feature = "actix-comp")]
+    Actix,
+}
+
 /// Spawns a new asynchronous task.
 pub fn spawn<T>(task: T)
 where
@@ -7,16 +16,36 @@ where
     T::Output: Send + 'static,
 {
     #[cfg(all(
-        feature = "tokio",
-        not(any(feature = "async-std", feature = "actix-rt"))
+        not(feature = "tokio-comp"),
+        not(feature = "async-std-comp"),
+        not(feature = "actix-comp"),
     ))]
-    tokio::spawn(task);
+    {
+        compile_error!("tokio-comp, async-std-comp or actix-comp feature required")
+    }
 
-    #[cfg(all(feature = "async-std", not(feature = "actix-rt")))]
-    async_std::task::spawn(task);
+    #[cfg(feature = "tokio-comp")]
+    let rt = Runtime::Tokio;
 
-    #[cfg(all(feature = "actix-rt", not(feature = "async-std")))]
-    actix_rt::spawn(async {
-        task.await;
-    });
+    #[cfg(feature = "async-std-comp")]
+    let rt = Runtime::AsyncStd;
+
+    #[cfg(feature = "actix-comp")]
+    let rt = Runtime::Actix;
+
+    #[cfg(any(
+        feature = "tokio-comp",
+        feature = "async-std-comp",
+        feature = "actix-comp",
+    ))]
+    match rt {
+        #[cfg(feature = "tokio-comp")]
+        Runtime::Tokio => tokio::spawn(task),
+        #[cfg(feature = "async-std-comp")]
+        Runtime::AsyncStd => async_std::task::spawn(task),
+        #[cfg(feature = "actix-comp")]
+        Runtime::Actix => actix_rt::spawn(async {
+            task.await;
+        }),
+    };
 }

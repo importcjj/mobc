@@ -1,48 +1,39 @@
 [package]
-name = "mobc"
-version = "0.7.3"
+name = "mobc2"
+version = "0.1.0"
 authors = ["importcjj <importcjj@gmail.com>"]
 edition = "2018"
-readme = "README.md"
-license = "MIT/Apache-2.0"
-description = "A generic connection pool with async/await support"
-repository = "https://github.com/importcjj/mobc"
-categories = ["asynchronous", "network-programming"]
-keywords = ["database", "pool", "async", "await"]
-documentation = "https://docs.rs/mobc/latest/mobc/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[features]
-default = ["tokio", "unstable"]
-unstable = []
 
 [dependencies]
-futures-core = "0.3"
-futures-channel = { version = "0.3", features=["sink"] }
-futures-util = { version = "0.3", features=["sink"] }
-tokio = { version = "1", features=["rt", "rt-multi-thread", "time"], optional = true }
+futures = "0.3.15"
+futures-channel = "0.3.15"
+async-trait = "0.1.50"
+
+tokio = { version = "1", features=["rt", "rt-multi-thread"], optional = true }
 async-std = { version = "1.0", features=["unstable"], optional = true }
 actix-rt = { version = "1", optional = true }
-async-trait = "0.1"
-futures-timer = "3.0.2"
-log = "0.4"
+
+[features]
+tokio-comp = ["tokio"]
+async-std-comp = ["async-std"]
+actix-comp = ["actix-rt"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
-env_logger = "0.8"
-tide = "0.16"
-async-std = { version = "1.0", features = ["attributes"] }
-actix-web = "3"
-actix-rt = "2"
+tide = "0.16.0"
+async-std = { version = "1.9.0", features = ["attributes"] }
+mobc = { version = "0.7.3" }
+redis = { version = "0.20.2", features = ["aio", "async-std-comp"] }
+tokio-postgres = "0.7.2"
+tokio = { version = "1.8.1", features = ["full"] }
 
 [[example]]
-name = "actix-web"
-required-features = ["actix-rt"]
+name = "mobc_postgres"
+path = "examples/mobc_postgres.rs"
+required-features = ["tokio-comp"]
 
 [[example]]
-name = "tide"
-required-features = ["async-std"]
+name = "mobc2_postgres"
+required-features = ["tokio-comp"]
 
-[package.metadata.docs.rs]
-features = ["unstable"]
-rustdoc-args = ["--cfg", "feature=\"unstable\""]

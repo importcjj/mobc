@@ -2,3 +2,7 @@ target/
 **/*.rs.bk
 Cargo.lock
 .cargo
+
+# Added by cargo
+
+/target

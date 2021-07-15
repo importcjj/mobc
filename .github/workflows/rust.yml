@@ -19,6 +19,4 @@ jobs:
     - name: Build
       run: RUST_BACKTRACE=1 cargo build --verbose --all
     - name: Run tests with async-std
-      run: RUST_BACKTRACE=1 cargo test --verbose --all --features=async-std,unstable
-    - name: Run tests with tokio
-      run: RUST_BACKTRACE=1 cargo test --verbose --all --features=tokio,unstable
+      run: RUST_BACKTRACE=1 cargo test --verbose --all
