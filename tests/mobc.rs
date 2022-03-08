@@ -402,7 +402,7 @@ fn test_lazy_initialization_failure() {
         let err = pool.get().await.err().unwrap();
         match err {
             Error::Inner(TestError) => (),
-            _ => panic!("{:?} expected"),
+            _ => panic!("expected"),
         }
 
         Ok::<(), Error<TestError>>(())
@@ -445,7 +445,7 @@ fn test_idle_timeout_partial_use() {
 
     struct Handler {
         num: AtomicIsize,
-    };
+    }
 
     #[async_trait]
     impl Manager for Handler {
