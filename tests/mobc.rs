@@ -561,7 +561,7 @@ fn test_set_conn_max_lifetime() {
 
     struct Handler {
         num: AtomicIsize,
-    };
+    }
 
     #[async_trait]
     impl Manager for Handler {

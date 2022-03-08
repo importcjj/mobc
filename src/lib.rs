@@ -605,7 +605,7 @@ async fn put_conn<M: Manager>(
     mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
     mut conn: Conn<M::Connection, M::Error>,
 ) {
-    if conn_still_valid(shared, &internals, &mut conn) {
+    if conn_still_valid(shared, &mut conn) {
         conn.brand_new = false;
         put_idle_conn(shared, internals, conn);
     } else {
@@ -617,14 +617,9 @@ async fn put_conn<M: Manager>(
 
 fn conn_still_valid<M: Manager>(
     shared: &Arc<SharedPool<M>>,
-    internals: &MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
     conn: &mut Conn<M::Connection, M::Error>,
 ) -> bool {
     if conn.raw.is_none() {
-        return false;
-    }
-
-    if internals.config.max_open > 0 && internals.num_open > internals.config.max_open {
         return false;
     }
 
