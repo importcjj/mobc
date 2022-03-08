@@ -538,7 +538,7 @@ impl<M: Manager> Pool<M> {
             }
         }
 
-        let create_r = self.open_new_connection(&mut internals).await;
+        let create_r = self.open_new_connection(internals).await;
 
         if create_r.is_ok() {
             permit.forget();
@@ -549,9 +549,9 @@ impl<M: Manager> Pool<M> {
 
     async fn open_new_connection(
         &self,
-        internals: &mut MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
+        mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
     ) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
-        log::debug!("get conn with manager create");
+        log::debug!("creating new connection from manager");
         match self.0.manager.connect().await {
             Ok(c) => {
                 internals.num_open += 1;
@@ -566,11 +566,9 @@ impl<M: Manager> Pool<M> {
                     brand_new: true,
                 };
 
-                return Ok(conn);
+                Ok(conn)
             }
-            Err(e) => {
-                return Err(Error::Inner(e));
-            }
+            Err(e) => Err(Error::Inner(e)),
         }
     }
 
@@ -597,7 +595,7 @@ async fn recycle_conn<M: Manager>(
     conn: Conn<M::Connection, M::Error>,
 ) {
     let internals = shared.internals.lock().await;
-    put_conn(&shared, internals, conn).await;
+    put_conn(shared, internals, conn).await;
 }
 
 async fn put_conn<M: Manager>(
@@ -628,7 +626,7 @@ fn conn_still_valid<M: Manager>(
         return false;
     }
 
-    return true;
+    true
 }
 
 fn put_idle_conn<M: Manager>(
@@ -709,7 +707,7 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
     for conn in closing {
         conn.close(&mut internals);
     }
-    return true;
+    true
 }
 
 /// A smart pointer wrapping a connection.
@@ -744,7 +742,7 @@ impl<M: Manager> Drop for Connection<M> {
 impl<M: Manager> Deref for Connection<M> {
     type Target = M::Connection;
     fn deref(&self) -> &Self::Target {
-        &self.conn.as_ref().unwrap().raw.as_ref().unwrap()
+        self.conn.as_ref().unwrap().raw.as_ref().unwrap()
     }
 }
 
