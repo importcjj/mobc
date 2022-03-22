@@ -72,11 +72,14 @@
 #![recursion_limit = "256"]
 mod config;
 
+mod error;
 #[cfg(feature = "unstable")]
 #[cfg_attr(feature = "docs", doc(cfg(unstable)))]
 pub mod runtime;
 mod spawn;
 mod time;
+
+pub use error::Error;
 
 pub use async_trait::async_trait;
 pub use config::Builder;
@@ -88,7 +91,6 @@ use futures_util::FutureExt;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 pub use spawn::spawn;
-use std::error;
 use std::fmt;
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
@@ -99,61 +101,6 @@ pub use time::{delay_for, interval};
 use tokio::sync::Semaphore;
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
-
-/// The error type returned by methods in this crate.
-pub enum Error<E> {
-    /// Manager Errors
-    Inner(E),
-    /// Timeout
-    Timeout,
-    /// BadConn
-    BadConn,
-}
-
-impl<E> From<E> for Error<E> {
-    fn from(e: E) -> Error<E> {
-        Error::Inner(e)
-    }
-}
-
-impl<E> fmt::Display for Error<E>
-where
-    E: fmt::Display + 'static,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Inner(ref err) => write!(f, "{}", err),
-            Error::Timeout => write!(f, "Timed out in mobc"),
-            Error::BadConn => write!(f, "Bad connection in mobc"),
-        }
-    }
-}
-
-impl<E> fmt::Debug for Error<E>
-where
-    E: fmt::Debug + 'static,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Inner(ref err) => write!(f, "{:?}", err),
-            Error::Timeout => write!(f, "Timed out in mobc"),
-            Error::BadConn => write!(f, "Bad connection in mobc"),
-        }
-    }
-}
-
-impl<E> error::Error for Error<E>
-where
-    E: error::Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match *self {
-            Error::Inner(ref err) => Some(err),
-            Error::Timeout => None,
-            Error::BadConn => None,
-        }
-    }
-}
 
 #[async_trait]
 /// A trait which provides connection-specific functionality.
@@ -307,12 +254,6 @@ impl fmt::Debug for State {
     }
 }
 
-#[derive(PartialEq)]
-enum GetStrategy {
-    CachedOrNewConn,
-    AlwaysNewConn,
-}
-
 impl<M: Manager> Drop for Pool<M> {
     fn drop(&mut self) {}
 }
@@ -455,11 +396,11 @@ impl<M: Manager> Pool<M> {
         let config = &self.0.config;
         loop {
             try_times += 1;
-            match self.strategy_get(GetStrategy::CachedOrNewConn).await {
+            match self.get_connection().await {
                 Ok(conn) => return Ok(conn),
                 Err(Error::BadConn) => {
                     if try_times == config.max_bad_conn_retries {
-                        return self.strategy_get(GetStrategy::AlwaysNewConn).await;
+                        return self.get_connection().await;
                     }
                     continue;
                 }
@@ -468,8 +409,8 @@ impl<M: Manager> Pool<M> {
         }
     }
 
-    async fn strategy_get(&self, strategy: GetStrategy) -> Result<Connection<M>, Error<M::Error>> {
-        let mut c = self.inner_strategy_ctx(strategy).await?;
+    async fn get_connection(&self) -> Result<Connection<M>, Error<M::Error>> {
+        let mut c = self.get_or_create_conn().await?;
         c.last_used_at = Instant::now();
 
         let conn = Connection {
@@ -513,17 +454,19 @@ impl<M: Manager> Pool<M> {
         true
     }
 
-    // TODO strategy isn't really needed anymore. We could remove it
-    async fn inner_strategy_ctx(
-        &self,
-        _strategy: GetStrategy,
-    ) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
+    async fn get_or_create_conn(&self) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
         let mut internals = self.0.internals.lock().await;
         internals.wait_count += 1;
         let wait_start = Instant::now();
 
         drop(internals);
-        let permit = self.0.semaphore.acquire().await.unwrap();
+        let permit = self
+            .0
+            .semaphore
+            .acquire()
+            .await
+            .map_err(|_| Error::PoolClosed)?;
+
         let mut internals = self.0.internals.lock().await;
         internals.wait_duration += wait_start.elapsed();
         let conn = internals.free_conns.pop();
