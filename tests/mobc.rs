@@ -1,3 +1,4 @@
+use futures_util::future::join_all;
 use futures_util::future::{join, ready, FutureExt};
 use mobc::async_trait;
 use mobc::delay_for;
@@ -1130,6 +1131,57 @@ fn test_requests_skip_canceled() {
 
         drop(first);
         assert!(third.await.is_ok());
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+#[cfg(all(
+    feature = "tokio",
+    not(any(feature = "async-std", feature = "actix-rt"))
+))]
+#[test]
+fn test_handle_large_number_of_requests() {
+    let mut rt = Runtime::new().unwrap();
+    let handler = OkManager;
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(10).build(handler);
+
+        for _ in 1..5 {
+            let mut futures = Vec::new();
+
+            for _ in 1..50000 {
+                let p1 = pool.clone();
+                let fut = tokio::task::spawn(async move {
+                    let conn = p1.get().await;
+                    if conn.is_ok() {
+                        assert!(conn.unwrap().0);
+                    }
+                    delay_for(Duration::from_millis(5)).await;
+                });
+                futures.push(fut);
+            }
+            delay_for(Duration::from_millis(50)).await;
+            futures.iter().for_each(|fut| fut.abort());
+            delay_for(Duration::from_millis(50)).await;
+        }
+
+        let mut futures = Vec::new();
+        for _ in 1..10 {
+            let p1 = pool.clone();
+            let fut = tokio::task::spawn(async move {
+                let conn = p1.get().await;
+                assert!(conn.is_ok());
+            });
+
+            futures.push(fut);
+        }
+
+        let results = join_all(futures).await;
+        for res in results {
+            assert!(res.is_ok())
+        }
+
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
