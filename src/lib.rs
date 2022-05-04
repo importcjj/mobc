@@ -64,8 +64,17 @@
 //!        rx.recv().await.unwrap();
 //!    }
 //!}
-//!
 //! ```
+//!
+//! # Metrics
+//!
+//! Mobc uses the metrics crate to expose the following metrics
+//!
+//! 1. Active Connections - The number of connections in use.
+//! 1. Idle Connections - The number of connections that are not being used
+//! 1. Wait Count - the number of processes waiting for a connection
+//! 1. Wait Duration - A cumulative histogram of the wait time for a connection
+//!
 
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 #![warn(missing_docs)]
@@ -73,6 +82,7 @@
 mod config;
 
 mod error;
+mod metrics_utils;
 #[cfg(feature = "unstable")]
 #[cfg_attr(feature = "docs", doc(cfg(unstable)))]
 pub mod runtime;
@@ -90,6 +100,7 @@ use futures_util::select;
 use futures_util::FutureExt;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+use metrics::{decrement_gauge, gauge, histogram, increment_gauge};
 pub use spawn::spawn;
 use std::fmt;
 use std::future::Future;
@@ -99,6 +110,10 @@ use std::time::{Duration, Instant};
 #[doc(hidden)]
 pub use time::{delay_for, interval};
 use tokio::sync::Semaphore;
+
+use metrics_utils::{ACTIVE_CONNECTIONS, WAIT_COUNT, WAIT_DURATION};
+
+use crate::metrics_utils::IDLE_CONNECTIONS;
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
 
@@ -154,6 +169,7 @@ struct Conn<C, E> {
 
 impl<C, E> Conn<C, E> {
     fn close(&self, internals: &mut MutexGuard<'_, PoolInternals<C, E>>) {
+        decrement_gauge!(ACTIVE_CONNECTIONS, 1.0);
         internals.num_open -= 1;
     }
 
@@ -352,6 +368,9 @@ impl<M: Manager> Pool<M> {
         } else {
             config.max_open as usize
         };
+
+        gauge!(IDLE_CONNECTIONS, max_open as f64);
+
         let (share_config, internal_config) = config.split();
         let internals = Mutex::new(PoolInternals {
             config: internal_config,
@@ -418,6 +437,9 @@ impl<M: Manager> Pool<M> {
             conn: Some(c),
         };
 
+        increment_gauge!(ACTIVE_CONNECTIONS, 1.0);
+        decrement_gauge!(WAIT_COUNT, 1.0);
+
         Ok(conn)
     }
 
@@ -457,6 +479,7 @@ impl<M: Manager> Pool<M> {
     async fn get_or_create_conn(&self) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
         let mut internals = self.0.internals.lock().await;
         internals.wait_count += 1;
+        increment_gauge!(WAIT_COUNT, 1.0);
         let wait_start = Instant::now();
 
         drop(internals);
@@ -469,11 +492,13 @@ impl<M: Manager> Pool<M> {
 
         let mut internals = self.0.internals.lock().await;
         internals.wait_duration += wait_start.elapsed();
+        histogram!(WAIT_DURATION, wait_start.elapsed());
         let conn = internals.free_conns.pop();
 
         if conn.is_some() {
             let mut conn = conn.unwrap();
             if self.validate_conn(&internals, &mut conn).await {
+                decrement_gauge!(IDLE_CONNECTIONS, 1.0);
                 permit.forget();
                 return Ok(conn);
             } else {
@@ -484,6 +509,7 @@ impl<M: Manager> Pool<M> {
         let create_r = self.open_new_connection(internals).await;
 
         if create_r.is_ok() {
+            decrement_gauge!(IDLE_CONNECTIONS, 1.0);
             permit.forget();
         }
 
@@ -553,6 +579,7 @@ async fn put_conn<M: Manager>(
         conn.close(&mut internals);
     }
 
+    increment_gauge!(IDLE_CONNECTIONS, 1.0);
     shared.semaphore.add_permits(1);
 }
 

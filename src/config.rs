@@ -1,3 +1,4 @@
+use crate::metrics_utils::describe_metrics;
 use crate::{Manager, Pool};
 use std::marker::PhantomData;
 use std::time::Duration;
@@ -209,7 +210,6 @@ impl<M: Manager> Builder<M> {
         self.health_check_interval = health_check_interval;
         self
     }
-
     // used by tests
     #[doc(hidden)]
     #[allow(dead_code)]
@@ -233,6 +233,8 @@ impl<M: Manager> Builder<M> {
     /// Panics if `max_idle` is greater than `max_size`.
     pub fn build(self, manager: M) -> Pool<M> {
         use std::cmp;
+
+        describe_metrics();
         let max_idle = self
             .max_idle
             .unwrap_or_else(|| cmp::min(self.max_open, DEFAULT_MAX_IDLE_CONNS));
