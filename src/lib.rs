@@ -169,7 +169,6 @@ struct Conn<C, E> {
 
 impl<C, E> Conn<C, E> {
     fn close(&self, internals: &mut MutexGuard<'_, PoolInternals<C, E>>) {
-        decrement_gauge!(ACTIVE_CONNECTIONS, 1.0);
         internals.num_open -= 1;
     }
 
@@ -563,6 +562,7 @@ async fn recycle_conn<M: Manager>(
     shared: &Arc<SharedPool<M>>,
     conn: Conn<M::Connection, M::Error>,
 ) {
+    decrement_gauge!(ACTIVE_CONNECTIONS, 1.0);
     let internals = shared.internals.lock().await;
     put_conn(shared, internals, conn).await;
 }
