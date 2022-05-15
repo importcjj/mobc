@@ -64,7 +64,7 @@ More DB adaptors are welcome.
 
 ## Examples
 
-More [examples](https://github.com/importcjj/mobc/tree/master/mobc-foo/examples)
+More [examples](https://github.com/importcjj/mobc/tree/master/examples)
 
 Using an imaginary "foodb" database.
 
