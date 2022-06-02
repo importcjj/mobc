@@ -562,7 +562,6 @@ async fn recycle_conn<M: Manager>(
     shared: &Arc<SharedPool<M>>,
     conn: Conn<M::Connection, M::Error>,
 ) {
-    decrement_gauge!(ACTIVE_CONNECTIONS, 1.0);
     let internals = shared.internals.lock().await;
     put_conn(shared, internals, conn).await;
 }
@@ -579,7 +578,6 @@ async fn put_conn<M: Manager>(
         conn.close(&mut internals);
     }
 
-    increment_gauge!(IDLE_CONNECTIONS, 1.0);
     shared.semaphore.add_permits(1);
 }
 
@@ -702,6 +700,12 @@ impl<M: Manager> Drop for Connection<M> {
     fn drop(&mut self) {
         let pool = self.pool.take().unwrap();
         let conn = self.conn.take().unwrap();
+        // We change the metrics here instead of in the recycle_conn
+        // in case there is a specific tracing dispatcher for this future
+        // if we change the metrics in the spawn_task the dispatcher will be
+        // lost
+        decrement_gauge!(ACTIVE_CONNECTIONS, 1.0);
+        increment_gauge!(IDLE_CONNECTIONS, 1.0);
         // FIXME: No clone!
         pool.clone().0.manager.spawn_task(async move {
             recycle_conn(&pool.0, conn).await;
