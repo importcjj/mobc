@@ -100,7 +100,7 @@ use futures_util::select;
 use futures_util::FutureExt;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use metrics::{decrement_gauge, gauge, histogram, increment_gauge};
+use metrics::{decrement_gauge, gauge, histogram, increment_counter, increment_gauge};
 pub use spawn::spawn;
 use std::fmt;
 use std::future::Future;
@@ -113,7 +113,7 @@ use tokio::sync::Semaphore;
 
 use metrics_utils::{ACTIVE_CONNECTIONS, WAIT_COUNT, WAIT_DURATION};
 
-use crate::metrics_utils::IDLE_CONNECTIONS;
+use crate::metrics_utils::{CLOSED_TOTAL, IDLE_CONNECTIONS, OPENED_TOTAL, OPEN_CONNECTIONS};
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
 
@@ -170,6 +170,8 @@ struct Conn<C, E> {
 impl<C, E> Conn<C, E> {
     fn close(&self, internals: &mut MutexGuard<'_, PoolInternals<C, E>>) {
         internals.num_open -= 1;
+        decrement_gauge!(OPEN_CONNECTIONS, 1.0);
+        increment_counter!(CLOSED_TOTAL);
     }
 
     fn expired(&self, timeout: Option<Duration>) -> bool {
@@ -524,6 +526,8 @@ impl<M: Manager> Pool<M> {
             Ok(c) => {
                 internals.num_open += 1;
                 drop(internals);
+                increment_gauge!(OPENED_TOTAL, 1.0);
+                increment_counter!(OPEN_CONNECTIONS);
 
                 let conn = Conn {
                     raw: Some(c),
