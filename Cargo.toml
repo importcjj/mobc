@@ -28,6 +28,8 @@ futures-timer = "3.0.2"
 log = "0.4"
 thiserror = "1.0"
 metrics = "0.18"
+tracing = { version = "0.1", features = ["attributes"] }
+tracing-subscriber = "0.3.11"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
