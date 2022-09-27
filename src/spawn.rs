@@ -33,7 +33,7 @@ where
     T::Output: Send + 'static,
 {
     let dispatcher = get_current_dispatcher();
-    tokio::spawn(task.with_subscriber(dispatcher.clone()));
+    tokio::spawn(task.with_subscriber(dispatcher));
 }
 
 #[cfg(all(

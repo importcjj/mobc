@@ -48,6 +48,7 @@ pub(crate) struct ShareConfig {
     pub health_check_interval: Option<Duration>,
 }
 
+#[derive(Clone)]
 pub(crate) struct InternalConfig {
     pub max_open: u64,
     pub max_idle: u64,
