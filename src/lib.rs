@@ -105,7 +105,10 @@ pub use spawn::spawn;
 use std::fmt;
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Weak};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Weak,
+};
 use std::time::{Duration, Instant};
 #[doc(hidden)]
 pub use time::{delay_for, interval};
@@ -154,6 +157,7 @@ struct SharedPool<M: Manager> {
     config: ShareConfig,
     manager: M,
     internals: Mutex<PoolInternals<M::Connection, M::Error>>,
+    state: PoolState,
     semaphore: Semaphore,
 }
 
@@ -168,8 +172,9 @@ struct Conn<C, E> {
 }
 
 impl<C, E> Conn<C, E> {
-    fn close(&self, internals: &mut MutexGuard<'_, PoolInternals<C, E>>) {
-        internals.num_open -= 1;
+    fn close(&self, state: &PoolState) {
+        state.num_open.fetch_sub(1, Ordering::Relaxed);
+        state.max_idle_closed.fetch_add(1, Ordering::Relaxed);
         decrement_gauge!(OPEN_CONNECTIONS, 1.0);
         increment_counter!(CLOSED_TOTAL);
     }
@@ -208,12 +213,15 @@ impl<C, E> Conn<C, E> {
 struct PoolInternals<C, E> {
     config: InternalConfig,
     free_conns: Vec<Conn<C, E>>,
-    num_open: u64,
-    max_lifetime_closed: u64,
-    max_idle_closed: u64,
-    wait_count: u64,
     wait_duration: Duration,
     cleaner_ch: Option<Sender<()>>,
+}
+
+struct PoolState {
+    num_open: AtomicU64,
+    max_lifetime_closed: AtomicU64,
+    max_idle_closed: AtomicU64,
+    wait_count: AtomicU64,
 }
 
 impl<C, E> Drop for PoolInternals<C, E> {
@@ -316,9 +324,8 @@ impl<M: Manager> Pool<M> {
         let max_idle = internals.config.max_idle as usize;
         if internals.free_conns.len() > max_idle {
             let closing = internals.free_conns.split_off(max_idle);
-            internals.max_idle_closed += closing.len() as u64;
             for conn in closing {
-                conn.close(&mut internals);
+                conn.close(&self.0.state);
             }
         }
     }
@@ -351,7 +358,10 @@ impl<M: Manager> Pool<M> {
             }
         }
 
-        if max_lifetime.is_some() && internals.num_open > 0 && internals.cleaner_ch.is_none() {
+        if max_lifetime.is_some()
+            && self.0.state.num_open.load(Ordering::Relaxed) > 0
+            && internals.cleaner_ch.is_none()
+        {
             log::debug!("run connection cleaner");
             let shared1 = Arc::downgrade(&self.0);
             let clean_rate = self.0.config.clean_rate;
@@ -375,19 +385,24 @@ impl<M: Manager> Pool<M> {
         let (share_config, internal_config) = config.split();
         let internals = Mutex::new(PoolInternals {
             config: internal_config,
-            free_conns: vec![],
-            num_open: 0,
-            max_lifetime_closed: 0,
-            wait_count: 0,
-            max_idle_closed: 0,
+            free_conns: Vec::new(),
             wait_duration: Duration::from_secs(0),
             cleaner_ch: None,
         });
+
+        let pool_state = PoolState {
+            num_open: AtomicU64::new(0),
+            max_lifetime_closed: AtomicU64::new(0),
+            wait_count: AtomicU64::new(0),
+            max_idle_closed: AtomicU64::new(0),
+        };
+
         let shared = Arc::new(SharedPool {
             config: share_config,
             manager,
             internals,
             semaphore: Semaphore::new(max_open),
+            state: pool_state,
         });
 
         Pool(shared)
@@ -446,18 +461,18 @@ impl<M: Manager> Pool<M> {
 
     async fn validate_conn(
         &self,
-        internals: &MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
+        internal_config: InternalConfig,
         conn: &mut Conn<M::Connection, M::Error>,
     ) -> bool {
         if conn.brand_new {
             return true;
         }
 
-        if conn.expired(internals.config.max_lifetime) {
+        if conn.expired(internal_config.max_lifetime) {
             return false;
         }
 
-        if conn.idle_expired(internals.config.max_idle_lifetime) {
+        if conn.idle_expired(internal_config.max_idle_lifetime) {
             return false;
         }
 
@@ -478,12 +493,10 @@ impl<M: Manager> Pool<M> {
     }
 
     async fn get_or_create_conn(&self) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
-        let mut internals = self.0.internals.lock().await;
-        internals.wait_count += 1;
+        self.0.state.wait_count.fetch_add(1, Ordering::Relaxed);
         increment_gauge!(WAIT_COUNT, 1.0);
         let wait_start = Instant::now();
 
-        drop(internals);
         let permit = self
             .0
             .semaphore
@@ -491,23 +504,29 @@ impl<M: Manager> Pool<M> {
             .await
             .map_err(|_| Error::PoolClosed)?;
 
+        self.0.state.wait_count.fetch_sub(1, Ordering::SeqCst);
+
         let mut internals = self.0.internals.lock().await;
+
         internals.wait_duration += wait_start.elapsed();
         histogram!(WAIT_DURATION, wait_start.elapsed());
+
         let conn = internals.free_conns.pop();
+        let internal_config = internals.config.clone();
+        drop(internals);
 
         if conn.is_some() {
             let mut conn = conn.unwrap();
-            if self.validate_conn(&internals, &mut conn).await {
+            if self.validate_conn(internal_config, &mut conn).await {
                 decrement_gauge!(IDLE_CONNECTIONS, 1.0);
                 permit.forget();
                 return Ok(conn);
             } else {
-                conn.close(&mut internals);
+                conn.close(&self.0.state);
             }
         }
 
-        let create_r = self.open_new_connection(internals).await;
+        let create_r = self.open_new_connection().await;
 
         if create_r.is_ok() {
             decrement_gauge!(IDLE_CONNECTIONS, 1.0);
@@ -517,15 +536,11 @@ impl<M: Manager> Pool<M> {
         create_r
     }
 
-    async fn open_new_connection(
-        &self,
-        mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
-    ) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
+    async fn open_new_connection(&self) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
         log::debug!("creating new connection from manager");
         match self.0.manager.connect().await {
             Ok(c) => {
-                internals.num_open += 1;
-                drop(internals);
+                self.0.state.num_open.fetch_add(1, Ordering::Relaxed);
                 increment_gauge!(OPENED_TOTAL, 1.0);
                 increment_counter!(OPEN_CONNECTIONS);
 
@@ -545,41 +560,39 @@ impl<M: Manager> Pool<M> {
     }
 
     /// Returns information about the current state of the pool.
+    /// It is better to use the metrics than this method, this method
+    /// requires a lock on the internals
     pub async fn state(&self) -> State {
         let internals = self.0.internals.lock().await;
+        let num_free_conns = internals.free_conns.len() as u64;
+        let wait_duration = internals.wait_duration;
+        let max_open = internals.config.max_open;
+        drop(internals);
         State {
-            max_open: internals.config.max_open,
+            max_open,
 
-            connections: internals.num_open,
-            in_use: internals.num_open - internals.free_conns.len() as u64,
-            idle: internals.free_conns.len() as u64,
+            connections: self.0.state.num_open.load(Ordering::Relaxed),
+            in_use: self.0.state.num_open.load(Ordering::Relaxed) - num_free_conns,
+            idle: num_free_conns,
 
-            wait_count: internals.wait_count,
-            wait_duration: internals.wait_duration,
-            max_idle_closed: internals.max_idle_closed,
-            max_lifetime_closed: internals.max_lifetime_closed,
+            wait_count: self.0.state.wait_count.load(Ordering::Relaxed),
+            wait_duration,
+            max_idle_closed: self.0.state.max_idle_closed.load(Ordering::Relaxed),
+            max_lifetime_closed: self.0.state.max_lifetime_closed.load(Ordering::Relaxed),
         }
     }
 }
 
 async fn recycle_conn<M: Manager>(
     shared: &Arc<SharedPool<M>>,
-    conn: Conn<M::Connection, M::Error>,
-) {
-    let internals = shared.internals.lock().await;
-    put_conn(shared, internals, conn).await;
-}
-
-async fn put_conn<M: Manager>(
-    shared: &Arc<SharedPool<M>>,
-    mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
     mut conn: Conn<M::Connection, M::Error>,
 ) {
     if conn_still_valid(shared, &mut conn) {
         conn.brand_new = false;
+        let internals = shared.internals.lock().await;
         put_idle_conn(shared, internals, conn);
     } else {
-        conn.close(&mut internals);
+        conn.close(&shared.state);
     }
 
     shared.semaphore.add_permits(1);
@@ -602,15 +615,15 @@ fn conn_still_valid<M: Manager>(
 }
 
 fn put_idle_conn<M: Manager>(
-    _shared: &Arc<SharedPool<M>>,
+    shared: &Arc<SharedPool<M>>,
     mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
     conn: Conn<M::Connection, M::Error>,
 ) {
     if internals.config.max_idle > internals.free_conns.len() as u64 {
-        internals.free_conns.push(conn)
+        internals.free_conns.push(conn);
+        drop(internals);
     } else {
-        internals.max_idle_closed += 1;
-        conn.close(&mut internals)
+        conn.close(&shared.state);
     }
 }
 
@@ -648,7 +661,8 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
     log::debug!("Clean connections");
 
     let mut internals = shared.internals.lock().await;
-    if internals.num_open == 0 || internals.config.max_lifetime.is_none() {
+    if shared.state.num_open.load(Ordering::Relaxed) == 0 || internals.config.max_lifetime.is_none()
+    {
         internals.cleaner_ch.take();
         return false;
     }
@@ -674,10 +688,14 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
         }
         i += 1;
     }
+    drop(internals);
 
-    internals.max_lifetime_closed += closing.len() as u64;
+    shared
+        .state
+        .max_lifetime_closed
+        .fetch_add(closing.len() as u64, Ordering::Relaxed);
     for conn in closing {
-        conn.close(&mut internals);
+        conn.close(&shared.state);
     }
     true
 }
@@ -704,10 +722,7 @@ impl<M: Manager> Drop for Connection<M> {
     fn drop(&mut self) {
         let pool = self.pool.take().unwrap();
         let conn = self.conn.take().unwrap();
-        // We change the metrics here instead of in the recycle_conn
-        // in case there is a specific tracing dispatcher for this future
-        // if we change the metrics in the spawn_task the dispatcher will be
-        // lost
+
         decrement_gauge!(ACTIVE_CONNECTIONS, 1.0);
         increment_gauge!(IDLE_CONNECTIONS, 1.0);
         // FIXME: No clone!
