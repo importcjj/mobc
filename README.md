@@ -1,8 +1,5 @@
 # Prisma Mobc
 
-This is a fork of the original Mobc with fixes for stablility. This changes the design of Mobc to use
-a Semaphore to manage the pool rather than the original design that used channels.
-
 A generic connection pool with async/await support.
 
 Inspired by Deadpool, Sqlx, r2d2 and Golang SQL package.
@@ -15,19 +12,21 @@ Inspired by Deadpool, Sqlx, r2d2 and Golang SQL package.
 
 ```toml
 [dependencies]
-mobc = { git = "https://github.com/prisma/mobc",  branch = "main"}
+mobc = "0.8"
 
 # For async-std runtime
-# mobc = { git = "https://github.com/prisma/mobc", features = ["async-std"] }
+# mobc = { version = "0.8", features = ["async-std"] }
 
 # For actix-rt 1.0
-# mobc = { git = "https://github.com/prisma/mobc", features = ["actix-rt"] }
+# mobc = { version = "0.8", features = ["actix-rt"] }
 ```
 
 ## Features
 
 - Support async/.await syntax
 - Support both `tokio` and `async-std`
+- Tokio metric support
+- Production battle tested
 - High performance
 - Easy to customize
 - Dynamic configuration
