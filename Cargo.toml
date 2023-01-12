@@ -1,7 +1,7 @@
 [package]
 name = "mobc"
-version = "0.7.3"
-authors = ["importcjj <importcjj@gmail.com>"]
+version = "0.8.0"
+authors = ["importcjj <importcjj@gmail.com>", "Garren Smith <garren.smith@gmail.com>"]
 edition = "2018"
 readme = "README.md"
 license = "MIT/Apache-2.0"
@@ -33,10 +33,10 @@ tracing-subscriber = "0.3.11"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-env_logger = "0.8"
+env_logger = "0.10.0"
 tide = "0.16"
 async-std = { version = "1.0", features = ["attributes"] }
-actix-web = "3"
+actix-web = "4.2.1"
 actix-rt = "2"
 
 [[example]]

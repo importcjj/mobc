@@ -2,8 +2,8 @@
 
 ## v0.8.0
 
-- Forked from Mobc repo
 - Replaces channels with Sempahores
+- Adds metrics
 
 ## v0.7.3 2021-6-25
 
