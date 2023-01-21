@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## v0.8.1
+
+- Fix typo's in readme
+- Update mobc-postgres and mobc-redis to use latest version
+
 ## v0.8.0
 
 - Replaces channels with Sempahores
