@@ -1,12 +1,12 @@
-# Prisma Mobc
+# Mobc
 
 A generic connection pool with async/await support.
 
 Inspired by Deadpool, Sqlx, r2d2 and Golang SQL package.
 
-[Changelog](https://github.com/prisma/mobc/blob/main/CHANGELOG.md)
+[Changelog](https://github.com/importcjj/mobc/blob/main/CHANGELOG.md)
 
-**Note: mobc requires at least Rust 1.39.**
+**Note: mobc requires at least Rust 1.60.**
 
 ## Usage
 
@@ -46,7 +46,7 @@ More DB adaptors are welcome.
 
 ## Examples
 
-More [examples](https://github.com/importcjj/mobc/tree/master/mobc-foo/examples)
+More [examples](https://github.com/importcjj/mobc/tree/main/examples)
 
 Using an imaginary "foodb" database.
 
