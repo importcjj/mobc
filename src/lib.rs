@@ -541,8 +541,8 @@ impl<M: Manager> Pool<M> {
         match self.0.manager.connect().await {
             Ok(c) => {
                 self.0.state.num_open.fetch_add(1, Ordering::Relaxed);
-                increment_gauge!(OPENED_TOTAL, 1.0);
-                increment_counter!(OPEN_CONNECTIONS);
+                increment_gauge!(OPEN_CONNECTIONS, 1.0);
+                increment_counter!(OPENED_TOTAL);
 
                 let conn = Conn {
                     raw: Some(c),
