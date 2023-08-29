@@ -1,6 +1,6 @@
 [package]
 name = "mobc-redis"
-version = "0.8.0"
+version = "0.8.2"
 authors = ["importcjj <importcjj@gmail.com>", "Garren Smith <garren.smith@gmail.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
