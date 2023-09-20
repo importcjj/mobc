@@ -125,6 +125,20 @@ Some of the connection pool configurations can be adjusted dynamically. Each con
 - max_idle_closed - The total number of connections closed due to max_idle.
 - max_lifetime_closed - The total number of connections closed due to max_lifetime.
 
+
+## Metrics
+
+- Counters
+    - `mobc_pool_connections_opened_total` - Total number of Pool Connections opened
+    - `mobc_pool_connections_closed_total` - Total number of Pool Connections closed
+- Gauges
+    - `mobc_pool_connections_open` - Number of currently open Pool Connections
+    - `mobc_pool_connections_busy` - Number of currently busy Pool Connections (executing a database query)"
+    - `mobc_pool_connections_idle` - Number of currently unused Pool Connections (waiting for the next pool query to run)
+    - `mobc_client_queries_wait` - Number of queries currently waiting for a connection
+- Histograms
+    - `mobc_client_queries_wait_histogram_ms` - Histogram of the wait time of all queries in ms
+  
 ## Compatibility
 
 Because tokio is not compatible with other runtimes, such as async-std. So a database driver written with tokio cannot run in the async-std runtime. For example, you can't use redis-rs in tide because it uses tokio, so the connection pool which bases on redis-res can't be used in tide either.
