@@ -8,10 +8,10 @@ pub const CLOSED_TOTAL: &str = "mobc_pool_connections_closed_total";
 pub const OPEN_CONNECTIONS: &str = "mobc_pool_connections_open";
 pub const ACTIVE_CONNECTIONS: &str = "mobc_pool_connections_busy";
 pub const IDLE_CONNECTIONS: &str = "mobc_pool_connections_idle";
-pub const WAIT_COUNT: &str = "mobc_client_queries_wait";
+pub const WAIT_COUNT: &str = "mobc_queries_wait";
 
 // histogram
-pub const WAIT_DURATION: &str = "mobc_client_queries_wait_histogram_ms";
+pub const WAIT_DURATION: &str = "mobc_queries_wait_histogram_ms";
 
 pub fn describe_metrics() {
     describe_counter!(OPENED_TOTAL, "Total number of Pool Connections opened");
