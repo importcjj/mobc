@@ -125,7 +125,6 @@ Some of the connection pool configurations can be adjusted dynamically. Each con
 - max_idle_closed - The total number of connections closed due to max_idle.
 - max_lifetime_closed - The total number of connections closed due to max_lifetime.
 
-
 ## Metrics
 
 - Counters
