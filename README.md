@@ -137,7 +137,7 @@ Some of the connection pool configurations can be adjusted dynamically. Each con
     - `mobc_queries_wait` - Number of queries currently waiting for a connection
 - Histograms
     - `mobc_queries_wait_histogram_ms` - Histogram of the wait time of all queries in ms
-
+  
 ## Compatibility
 
 Because tokio is not compatible with other runtimes, such as async-std. So a database driver written with tokio cannot run in the async-std runtime. For example, you can't use redis-rs in tide because it uses tokio, so the connection pool which bases on redis-res can't be used in tide either.
