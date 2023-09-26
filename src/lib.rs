@@ -153,6 +153,7 @@ pub trait Manager: Send + Sync + 'static {
     }
 }
 
+#[derive(Debug)]
 struct SharedPool<M: Manager> {
     config: ShareConfig,
     manager: M,
@@ -217,6 +218,7 @@ struct PoolInternals<C, E> {
     cleaner_ch: Option<Sender<()>>,
 }
 
+#[derive(Debug)]
 struct PoolState {
     num_open: AtomicU64,
     max_lifetime_closed: AtomicU64,
@@ -237,6 +239,12 @@ pub struct Pool<M: Manager>(Arc<SharedPool<M>>);
 impl<M: Manager> Clone for Pool<M> {
     fn clone(&self) -> Self {
         Pool(self.0.clone())
+    }
+}
+
+impl<M: Manager> fmt::Debug for Pool<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Pool")
     }
 }
 
