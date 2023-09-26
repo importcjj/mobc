@@ -247,6 +247,7 @@ impl<M: Manager> fmt::Debug for Pool<M> {
 }
 
 /// Information about the state of a `Pool`.
+#[derive(Debug)]
 pub struct State {
     /// Maximum number of open connections to the database
     pub max_open: u64,
@@ -268,21 +269,6 @@ pub struct State {
     pub max_idle_closed: u64,
     /// The total number of connections closed due to `max_lifetime`.
     pub max_lifetime_closed: u64,
-}
-
-impl fmt::Debug for State {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("Stats")
-            .field("max_open", &self.max_open)
-            .field("connections", &self.connections)
-            .field("in_use", &self.in_use)
-            .field("idle", &self.idle)
-            .field("wait_count", &self.wait_count)
-            .field("wait_duration", &self.wait_duration)
-            .field("max_idle_closed", &self.max_idle_closed)
-            .field("max_lifetime_closed", &self.max_lifetime_closed)
-            .finish()
-    }
 }
 
 impl<M: Manager> Drop for Pool<M> {
@@ -317,7 +303,7 @@ impl<M: Manager> Pool<M> {
     /// The pool will maintain at most this many idle connections
     /// at all times, while respecting the value of `max_open`.
     ///
-    /// Defaults to 2.
+    /// 0 means unlimited (limited only by `max_open`), defaults to 2.
     pub async fn set_max_idle_conns(&self, n: u64) {
         let mut internals = self.0.internals.lock().await;
         internals.config.max_idle =
@@ -328,8 +314,10 @@ impl<M: Manager> Pool<M> {
             };
 
         let max_idle = internals.config.max_idle as usize;
-        if internals.free_conns.len() > max_idle {
+        // Treat max_idle == 0 as unlimited
+        if max_idle > 0 && internals.free_conns.len() > max_idle {
             let closing = internals.free_conns.split_off(max_idle);
+            drop(internals);
             for conn in closing {
                 conn.close(&self.0.state);
             }
@@ -625,7 +613,10 @@ fn put_idle_conn<M: Manager>(
     mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
     conn: Conn<M::Connection, M::Error>,
 ) {
-    if internals.config.max_idle > internals.free_conns.len() as u64 {
+    // Treat max_idle == 0 as unlimited idle connections.
+    if internals.config.max_idle == 0
+        || internals.config.max_idle > internals.free_conns.len() as u64
+    {
         internals.free_conns.push(conn);
         drop(internals);
     } else {
