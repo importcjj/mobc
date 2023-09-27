@@ -240,6 +240,12 @@ impl<M: Manager> Clone for Pool<M> {
     }
 }
 
+impl<M: Manager> fmt::Debug for Pool<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Pool")
+    }
+}
+
 /// Information about the state of a `Pool`.
 pub struct State {
     /// Maximum number of open connections to the database
