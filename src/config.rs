@@ -40,7 +40,6 @@ impl Config {
     }
 }
 
-#[derive(Debug)]
 pub(crate) struct ShareConfig {
     pub clean_rate: Duration,
     pub max_bad_conn_retries: u32,
