@@ -109,6 +109,7 @@ impl<M: Manager> Builder<M> {
     /// The pool will maintain at most this many idle connections
     /// at all times, while respecting the value of `max_open`.
     ///
+    /// - 0 means unlimited (limited only by `max_open`).
     /// - Defaults to 2.
     pub fn max_idle(mut self, max_idle: u64) -> Self {
         self.max_idle = Some(max_idle);
@@ -228,22 +229,12 @@ impl<M: Manager> Builder<M> {
     }
 
     /// Consumes the builder, returning a new, initialized pool.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `max_idle` is greater than `max_size`.
     pub fn build(self, manager: M) -> Pool<M> {
-        use std::cmp;
-
         describe_metrics();
-        let max_idle = self
-            .max_idle
-            .unwrap_or_else(|| cmp::min(self.max_open, DEFAULT_MAX_IDLE_CONNS));
-
-        assert!(
-            self.max_open >= max_idle,
-            "max_idle must be no larger than max_open"
-        );
+        let mut max_idle = self.max_idle.unwrap_or(DEFAULT_MAX_IDLE_CONNS);
+        if self.max_open > 0 && max_idle > self.max_open {
+            max_idle = self.max_open
+        };
 
         let config = Config {
             max_open: self.max_open,

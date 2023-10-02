@@ -43,6 +43,7 @@ mod time {
     }
 
     /// Wait until duration has elapsed.
+    #[must_use = "This does nothing if you do not await"]
     pub fn delay_for(duration: Duration) -> Delay {
         Delay::new(duration)
     }

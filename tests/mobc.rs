@@ -1,11 +1,16 @@
-use futures_util::future::join_all;
-use futures_util::future::{join, ready, FutureExt};
+use futures_util::{
+    future::{join, join_all, ready, FutureExt},
+    stream, StreamExt, TryStreamExt,
+};
 use mobc::async_trait;
 use mobc::delay_for;
 use mobc::runtime::Runtime;
+use mobc::Connection;
 use mobc::Error;
 use mobc::Manager;
 use mobc::Pool;
+use mobc::State;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -51,6 +56,35 @@ impl Manager for NthConnectFailManager {
     async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
         Ok(conn)
     }
+}
+
+/// Gets `count` connections from the pool, one at a time, dropping each connection
+/// before getting the next.
+///
+/// Intended to assist with testing that connections get (or don't get) reused.
+async fn get_and_drop_conns<M>(pool: &Pool<M>, count: usize)
+where
+    M: Manager,
+    M::Error: Debug,
+{
+    for _ in 0..count {
+        pool.get().await.unwrap();
+
+        // Give the task spawned by dropping that connection a moment to work.
+        delay_for(Duration::from_millis(100)).await;
+    }
+}
+
+/// Gets `count` connections from the pool
+async fn get_conns<M>(pool: &Pool<M>, count: usize) -> Result<Vec<Connection<M>>, Error<M::Error>>
+where
+    M: Manager,
+{
+    stream::repeat_with(|| pool.get())
+        .take(count)
+        .buffer_unordered(count)
+        .try_collect()
+        .await
 }
 
 #[test]
@@ -695,25 +729,7 @@ fn test_max_idle_lifetime() {
 fn test_set_max_open_conns() {
     let mut rt: Runtime = Runtime::new().unwrap();
 
-    struct Connection;
-
-    struct Handler;
-
-    #[async_trait]
-    impl Manager for Handler {
-        type Connection = Connection;
-        type Error = TestError;
-
-        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-            Ok(Connection)
-        }
-
-        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-            Ok(conn)
-        }
-    }
-
-    let handler = Handler;
+    let handler = OkManager;
 
     rt.block_on(async {
         let pool = Pool::builder().max_open(5).max_idle(2).build(handler);
@@ -765,25 +781,7 @@ fn test_set_max_open_conns() {
 fn test_set_max_idle_conns() {
     let mut rt: Runtime = Runtime::new().unwrap();
 
-    struct Connection;
-
-    struct Handler;
-
-    #[async_trait]
-    impl Manager for Handler {
-        type Connection = Connection;
-        type Error = TestError;
-
-        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-            Ok(Connection)
-        }
-
-        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-            Ok(conn)
-        }
-    }
-
-    let handler = Handler;
+    let handler = OkManager;
 
     rt.block_on(async {
         let pool = Pool::builder().max_open(5).max_idle(5).build(handler);
@@ -813,25 +811,7 @@ fn test_set_max_idle_conns() {
 fn test_min_idle() {
     let mut rt: Runtime = Runtime::new().unwrap();
 
-    struct Connection;
-
-    struct Handler;
-
-    #[async_trait]
-    impl Manager for Handler {
-        type Connection = Connection;
-        type Error = TestError;
-
-        async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-            Ok(Connection)
-        }
-
-        async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-            Ok(conn)
-        }
-    }
-
-    let handler = Handler;
+    let handler = OkManager;
 
     rt.block_on(async {
         let pool = Pool::builder().max_open(5).max_idle(2).build(handler);
@@ -865,6 +845,222 @@ fn test_min_idle() {
         assert_eq!(2_u64, pool.state().await.idle);
         assert_eq!(2_u64, pool.state().await.connections);
         assert_eq!(4_u64, pool.state().await.max_idle_closed);
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+/// Gets and drops the specified number of connections and checks that the
+/// `Pool` has the expected state.
+///
+/// There is one field not checked in the expected `State`:
+/// * `wait_duration`
+async fn check_get_and_drop<M>(pool: &Pool<M>, take_conns: usize, expect: State)
+where
+    M: Manager,
+    M::Error: Debug,
+{
+    println!(
+        "Pool configured for max_open == {}; taking {} conns",
+        pool.state().await.max_open,
+        take_conns,
+    );
+
+    get_and_drop_conns(pool, take_conns).await;
+
+    let state = pool.state().await;
+    println!("Pool state: {state:#?}");
+    assert_eq!(expect.max_open, state.max_open);
+    assert_eq!(expect.connections, state.connections);
+    assert_eq!(expect.in_use, state.in_use);
+    assert_eq!(expect.idle, state.idle);
+    assert_eq!(expect.wait_count, state.wait_count);
+    assert_eq!(expect.max_idle_closed, state.max_idle_closed);
+    assert_eq!(expect.max_lifetime_closed, state.max_lifetime_closed);
+}
+
+/// Ensure a pool configured for unlimited max_open and max_idle reuses connections.
+#[test]
+fn test_max_idle_and_max_open_unlimited() {
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        // Check that the builder produces the correct behavior
+        let pool = Pool::builder().max_open(0).max_idle(0).build(OkManager);
+        check(pool).await;
+        println!("----");
+
+        // Check that the `.set_max_*()` methods produce the correct behavior
+        let pool = Pool::builder().max_open(10).max_idle(10).build(OkManager);
+        pool.set_max_open_conns(0).await;
+        pool.set_max_idle_conns(0).await;
+        check(pool).await;
+        println!("----");
+
+        // Check that calling `.set_max_*()` in the reverse order produces the same result.
+        let pool = Pool::builder().max_open(10).max_idle(10).build(OkManager);
+        pool.set_max_idle_conns(0).await;
+        pool.set_max_open_conns(0).await;
+        check(pool).await;
+
+        async fn check(pool: Pool<OkManager>) {
+            check_get_and_drop(
+                &pool,
+                5,
+                State {
+                    max_open: 0,
+                    connections: 1,
+                    idle: 1,
+                    in_use: 0,
+                    max_idle_closed: 0,
+                    max_lifetime_closed: 0,
+                    wait_count: 0,
+                    wait_duration: Duration::from_secs(0),
+                },
+            )
+            .await;
+
+            let conns = get_conns(&pool, 10).await;
+            let state = pool.state().await;
+            println!("Pool state with 10 conns in use: {state:#?}");
+            assert_eq!(10, state.connections);
+            assert_eq!(0, state.idle);
+            assert_eq!(10, state.in_use);
+            assert_eq!(0, state.max_idle_closed);
+            assert_eq!(0, state.max_lifetime_closed);
+            assert_eq!(0, state.wait_count);
+
+            drop(conns);
+
+            // Let the background tasks from the drop complete.
+            delay_for(Duration::from_millis(100)).await;
+
+            let state = pool.state().await;
+            println!("Pool state after dropping all conns: {state:#?}");
+            assert_eq!(10, state.connections);
+            assert_eq!(10, state.idle);
+            assert_eq!(0, state.in_use);
+            assert_eq!(0, state.max_idle_closed);
+            assert_eq!(0, state.max_lifetime_closed);
+            assert_eq!(0, state.wait_count);
+        }
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+/// Ensure a pool configured for unlimited max_open and limited max_idle reuses connections.
+#[test]
+fn test_max_idle_limited_max_open_unlimited() {
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(0).max_idle(5).build(OkManager);
+        check(pool).await;
+        println!("----");
+
+        // Check that the `.set_max_*()` methods produce the correct behavior
+        let pool = Pool::builder().max_open(10).max_idle(10).build(OkManager);
+        pool.set_max_open_conns(0).await;
+        pool.set_max_idle_conns(5).await;
+        check(pool).await;
+        println!("----");
+
+        // Check that calling `.set_max_*()` in the reverse order produces the same result.
+        let pool = Pool::builder().max_open(10).max_idle(10).build(OkManager);
+        pool.set_max_idle_conns(5).await;
+        pool.set_max_open_conns(0).await;
+        check(pool).await;
+
+        async fn check(pool: Pool<OkManager>) {
+            check_get_and_drop(
+                &pool,
+                6,
+                State {
+                    max_open: 0,
+                    connections: 1,
+                    idle: 1,
+                    in_use: 0,
+                    max_idle_closed: 0,
+                    max_lifetime_closed: 0,
+                    wait_count: 0,
+                    wait_duration: Duration::from_secs(0),
+                },
+            )
+            .await;
+
+            // Make it so there's one more open conns than there are allowed idle conns
+            let conns = get_conns(&pool, 6).await.unwrap();
+            let state = pool.state().await;
+            println!("Pool state with 6 conns in use: {state:#?}");
+            assert_eq!(6, state.connections);
+            assert_eq!(6, state.in_use);
+            assert_eq!(0, state.idle);
+
+            // Return them all to the pool.
+            drop(conns);
+
+            // A task is created for each dropped connection. Wait a moment to allow them to complete.
+            delay_for(Duration::from_millis(100)).await;
+
+            // Ensure the state of the pool is correct
+            let state = pool.state().await;
+            println!("Pool state after dropping all conns: {state:#?}");
+            assert_eq!(5, state.connections);
+            assert_eq!(0, state.in_use);
+            assert_eq!(5, state.idle);
+            assert_eq!(1, state.max_idle_closed);
+        }
+
+        Ok::<(), Error<TestError>>(())
+    })
+    .unwrap();
+}
+
+/// Check that a builder configured for more idle conns than open conns
+/// uses the value for open conns as the max.
+#[test]
+fn test_max_idle_greater_than_max_open() {
+    let mut rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = Pool::builder().max_open(5).max_idle(6).build(OkManager);
+        check(pool).await;
+        println!("----");
+
+        // Check that the `.set_max_*()` methods produce the correct behavior
+        let pool = Pool::builder().max_open(10).max_idle(10).build(OkManager);
+        pool.set_max_open_conns(5).await;
+        pool.set_max_idle_conns(6).await;
+        check(pool).await;
+        println!("----");
+
+        // Check that calling `.set_max_*()` in the reverse order produces the same result.
+        let pool = Pool::builder().max_open(10).max_idle(10).build(OkManager);
+        pool.set_max_idle_conns(6).await;
+        pool.set_max_open_conns(5).await;
+        check(pool).await;
+
+        async fn check(pool: Pool<OkManager>) {
+            let conns = get_conns(&pool, 5).await.unwrap();
+
+            let state = pool.state().await;
+            println!("With 5 connections in use: {state:#?}");
+
+            assert_eq!(5, state.max_open);
+            assert_eq!(5, state.connections);
+            assert_eq!(5, state.in_use);
+            assert_eq!(0, state.idle);
+
+            drop(conns);
+            delay_for(Duration::from_millis(100)).await;
+
+            let state = pool.state().await;
+            println!("After dropping all connections: {state:#?}");
+
+            assert_eq!(5, state.connections);
+            assert_eq!(0, state.in_use);
+            assert_eq!(5, state.idle);
+        }
+
         Ok::<(), Error<TestError>>(())
     })
     .unwrap();
