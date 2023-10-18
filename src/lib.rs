@@ -374,7 +374,7 @@ impl<M: Manager> Pool<M> {
             config.max_open as usize
         };
 
-        gauge!(IDLE_CONNECTIONS, max_open as f64);
+        gauge!(IDLE_CONNECTIONS, 0.0);
 
         let (share_config, internal_config) = config.split();
         let internals = Mutex::new(PoolInternals {
@@ -523,7 +523,6 @@ impl<M: Manager> Pool<M> {
         let create_r = self.open_new_connection().await;
 
         if create_r.is_ok() {
-            decrement_gauge!(IDLE_CONNECTIONS, 1.0);
             permit.forget();
         }
 
@@ -617,6 +616,7 @@ fn put_idle_conn<M: Manager>(
     if internals.config.max_idle == 0
         || internals.config.max_idle > internals.free_conns.len() as u64
     {
+        increment_gauge!(IDLE_CONNECTIONS, 1.0);
         internals.free_conns.push(conn);
         drop(internals);
     } else {
@@ -721,7 +721,6 @@ impl<M: Manager> Drop for Connection<M> {
         let conn = self.conn.take().unwrap();
 
         decrement_gauge!(ACTIVE_CONNECTIONS, 1.0);
-        increment_gauge!(IDLE_CONNECTIONS, 1.0);
         // FIXME: No clone!
         pool.clone().0.manager.spawn_task(async move {
             recycle_conn(&pool.0, conn).await;
