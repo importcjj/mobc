@@ -1,5 +1,7 @@
 # CHANGELOG
 
+See [Releases](https://github.com/importcjj/mobc/releases) for the latest change log.
+
 ## v0.8.1
 
 - Fix typo's in readme
