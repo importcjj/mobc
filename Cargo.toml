@@ -27,7 +27,7 @@ async-trait = "0.1"
 futures-timer = "3.0.2"
 log = "0.4"
 thiserror = "1.0"
-metrics = "0.21"
+metrics = "0.22.1"
 tracing = { version = "0.1", features = ["attributes"] }
 tracing-subscriber = "0.3.11"
 
