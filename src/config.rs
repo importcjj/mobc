@@ -1,3 +1,4 @@
+#[cfg(feature = "metrics")]
 use crate::metrics_utils::describe_metrics;
 use crate::{Manager, Pool};
 use std::marker::PhantomData;
@@ -230,7 +231,9 @@ impl<M: Manager> Builder<M> {
 
     /// Consumes the builder, returning a new, initialized pool.
     pub fn build(self, manager: M) -> Pool<M> {
+        #[cfg(feature = "metrics")]
         describe_metrics();
+
         let mut max_idle = self.max_idle.unwrap_or(DEFAULT_MAX_IDLE_CONNS);
         if self.max_open > 0 && max_idle > self.max_open {
             max_idle = self.max_open

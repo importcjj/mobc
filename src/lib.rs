@@ -82,6 +82,7 @@
 mod config;
 
 mod error;
+#[cfg(feature = "metrics")]
 mod metrics_utils;
 #[cfg(feature = "unstable")]
 #[cfg_attr(feature = "docs", doc(cfg(unstable)))]
@@ -100,6 +101,7 @@ use futures_util::select;
 use futures_util::FutureExt;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+#[cfg(feature = "metrics")]
 use metrics::{counter, gauge, histogram};
 pub use spawn::spawn;
 use std::fmt;
@@ -112,11 +114,13 @@ use std::sync::{
 use std::time::{Duration, Instant};
 #[doc(hidden)]
 pub use time::{delay_for, interval};
+
 use tokio::sync::Semaphore;
 
-use metrics_utils::{ACTIVE_CONNECTIONS, WAIT_COUNT, WAIT_DURATION};
-
+#[cfg(feature = "metrics")]
 use crate::metrics_utils::{CLOSED_TOTAL, IDLE_CONNECTIONS, OPENED_TOTAL, OPEN_CONNECTIONS};
+#[cfg(feature = "metrics")]
+use metrics_utils::{ACTIVE_CONNECTIONS, WAIT_COUNT, WAIT_DURATION};
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
 
@@ -175,7 +179,9 @@ impl<C, E> Conn<C, E> {
     fn close(&self, state: &PoolState) {
         state.num_open.fetch_sub(1, Ordering::Relaxed);
         state.max_idle_closed.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "metrics")]
         gauge!(OPEN_CONNECTIONS).decrement(1.0);
+        #[cfg(feature = "metrics")]
         counter!(CLOSED_TOTAL).increment(1);
     }
 
@@ -374,6 +380,7 @@ impl<M: Manager> Pool<M> {
             config.max_open as usize
         };
 
+        #[cfg(feature = "metrics")]
         gauge!(IDLE_CONNECTIONS).set(0.0);
 
         let (share_config, internal_config) = config.split();
@@ -447,7 +454,9 @@ impl<M: Manager> Pool<M> {
             conn: Some(c),
         };
 
+        #[cfg(feature = "metrics")]
         gauge!(ACTIVE_CONNECTIONS).increment(1.0);
+        #[cfg(feature = "metrics")]
         gauge!(WAIT_COUNT).decrement(1.0);
 
         Ok(conn)
@@ -488,6 +497,8 @@ impl<M: Manager> Pool<M> {
 
     async fn get_or_create_conn(&self) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
         self.0.state.wait_count.fetch_add(1, Ordering::Relaxed);
+
+        #[cfg(feature = "metrics")]
         gauge!(WAIT_COUNT).increment(1.0);
         let wait_start = Instant::now();
 
@@ -503,6 +514,7 @@ impl<M: Manager> Pool<M> {
         let mut internals = self.0.internals.lock().await;
 
         internals.wait_duration += wait_start.elapsed();
+        #[cfg(feature = "metrics")]
         histogram!(WAIT_DURATION).record(wait_start.elapsed());
 
         let conn = internals.free_conns.pop();
@@ -512,6 +524,7 @@ impl<M: Manager> Pool<M> {
         if conn.is_some() {
             let mut conn = conn.unwrap();
             if self.validate_conn(internal_config, &mut conn).await {
+                #[cfg(feature = "metrics")]
                 gauge!(IDLE_CONNECTIONS,).decrement(1.0);
                 permit.forget();
                 return Ok(conn);
@@ -534,7 +547,9 @@ impl<M: Manager> Pool<M> {
         match self.0.manager.connect().await {
             Ok(c) => {
                 self.0.state.num_open.fetch_add(1, Ordering::Relaxed);
+                #[cfg(feature = "metrics")]
                 gauge!(OPEN_CONNECTIONS).increment(1.0);
+                #[cfg(feature = "metrics")]
                 counter!(OPENED_TOTAL).increment(1);
 
                 let conn = Conn {
@@ -616,6 +631,7 @@ fn put_idle_conn<M: Manager>(
     if internals.config.max_idle == 0
         || internals.config.max_idle > internals.free_conns.len() as u64
     {
+        #[cfg(feature = "metrics")]
         gauge!(IDLE_CONNECTIONS).increment(1.0);
         internals.free_conns.push(conn);
         drop(internals);
@@ -720,6 +736,7 @@ impl<M: Manager> Drop for Connection<M> {
         let pool = self.pool.take().unwrap();
         let conn = self.conn.take().unwrap();
 
+        #[cfg(feature = "metrics")]
         gauge!(ACTIVE_CONNECTIONS).decrement(1.0);
         // FIXME: No clone!
         pool.clone().0.manager.spawn_task(async move {
