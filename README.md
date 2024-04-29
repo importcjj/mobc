@@ -90,7 +90,7 @@ Sets the maximum number of connections managed by the pool.
 
 > 0 means unlimited, defaults to 10.
 
-#### min_idle
+#### max_idle
 
 Sets the maximum idle connection count maintained by the pool. The pool will maintain at most this many idle connections at all times, while respecting the value of max_open.
 
