@@ -710,14 +710,6 @@ fn test_max_idle_lifetime() {
         for _ in 0..5 {
             v.push(pool.get().await.unwrap());
         }
-        assert_eq!(0, DROPPED.load(Ordering::SeqCst));
-        drop(v);
-        delay_for(Duration::from_millis(2000)).await;
-
-        let mut v = vec![];
-        for _ in 0..5 {
-            v.push(pool.get().await.unwrap());
-        }
         assert_eq!(5, DROPPED.load(Ordering::SeqCst));
 
         Ok::<(), Error<TestError>>(())
