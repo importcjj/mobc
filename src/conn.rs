@@ -44,7 +44,7 @@ impl<C> ActiveConn<C> {
     }
 
     pub(crate) fn set_brand_new(&mut self, brand_new: bool) {
-        self.state.brand_new = brand_new
+        self.state.brand_new = brand_new;
     }
 
     pub(crate) fn into_raw(self) -> C {
