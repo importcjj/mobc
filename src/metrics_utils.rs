@@ -59,25 +59,33 @@ impl Drop for GaugeGuard {
 }
 
 pub(crate) struct DurationHistogramGuard {
-    start: Instant,
+    start: Option<Instant>,
     key: &'static str,
 }
 
 impl DurationHistogramGuard {
     pub(crate) fn start(key: &'static str) -> Self {
         Self {
-            start: Instant::now(),
+            start: Some(Instant::now()),
             key,
         }
     }
 
-    pub(crate) fn elapsed(&self) -> Duration {
-        self.start.elapsed()
+    pub(crate) fn into_elapsed(mut self) -> Duration {
+        let start = self
+            .start
+            .take()
+            .expect("start time was unset without consuming or dropping the guard");
+        let elapsed = start.elapsed();
+        histogram!(self.key).record(elapsed);
+        elapsed
     }
 }
 
 impl Drop for DurationHistogramGuard {
     fn drop(&mut self) {
-        histogram!(self.key).record(self.start.elapsed());
+        if let Some(start) = self.start.take() {
+            histogram!(self.key).record(start.elapsed());
+        }
     }
 }

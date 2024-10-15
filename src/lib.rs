@@ -442,8 +442,7 @@ impl<M: Manager> Pool<M> {
 
         let mut internals = self.0.internals.lock().await;
 
-        internals.wait_duration += wait_guard.elapsed();
-        drop(wait_guard);
+        internals.wait_duration += wait_guard.into_elapsed();
 
         let conn = internals.free_conns.pop();
         let internal_config = internals.config.clone();
