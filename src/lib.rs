@@ -81,6 +81,7 @@
 #![recursion_limit = "256"]
 mod config;
 
+mod conn;
 mod error;
 mod metrics_utils;
 #[cfg(feature = "unstable")]
@@ -94,13 +95,15 @@ pub use error::Error;
 pub use async_trait::async_trait;
 pub use config::Builder;
 use config::{Config, InternalConfig, ShareConfig};
+use conn::{ActiveConn, ConnState, IdleConn};
 use futures_channel::mpsc::{self, Receiver, Sender};
 use futures_util::lock::{Mutex, MutexGuard};
 use futures_util::select;
 use futures_util::FutureExt;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
-use metrics::{counter, gauge, histogram};
+use metrics::gauge;
+use metrics_utils::DurationHistogramGuard;
 pub use spawn::spawn;
 use std::fmt;
 use std::future::Future;
@@ -112,11 +115,9 @@ use std::sync::{
 use std::time::{Duration, Instant};
 #[doc(hidden)]
 pub use time::{delay_for, interval};
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use metrics_utils::{ACTIVE_CONNECTIONS, WAIT_COUNT, WAIT_DURATION};
-
-use crate::metrics_utils::{CLOSED_TOTAL, IDLE_CONNECTIONS, OPENED_TOTAL, OPEN_CONNECTIONS};
+use crate::metrics_utils::{GaugeGuard, IDLE_CONNECTIONS, WAIT_COUNT, WAIT_DURATION};
 
 const CONNECTION_REQUEST_QUEUE_SIZE: usize = 10000;
 
@@ -156,75 +157,26 @@ pub trait Manager: Send + Sync + 'static {
 struct SharedPool<M: Manager> {
     config: ShareConfig,
     manager: M,
-    internals: Mutex<PoolInternals<M::Connection, M::Error>>,
+    internals: Mutex<PoolInternals<M::Connection>>,
     state: PoolState,
-    semaphore: Semaphore,
+    semaphore: Arc<Semaphore>,
 }
 
-struct Conn<C, E> {
-    raw: Option<C>,
-    #[allow(dead_code)]
-    last_err: Mutex<Option<E>>,
-    created_at: Instant,
-    last_used_at: Instant,
-    last_checked_at: Instant,
-    brand_new: bool,
-}
-
-impl<C, E> Conn<C, E> {
-    fn close(&self, state: &PoolState) {
-        state.num_open.fetch_sub(1, Ordering::Relaxed);
-        state.max_idle_closed.fetch_add(1, Ordering::Relaxed);
-        gauge!(OPEN_CONNECTIONS).decrement(1.0);
-        counter!(CLOSED_TOTAL).increment(1);
-    }
-
-    fn expired(&self, timeout: Option<Duration>) -> bool {
-        timeout
-            .and_then(|check_interval| {
-                Instant::now()
-                    .checked_duration_since(self.created_at)
-                    .map(|dur_since| dur_since >= check_interval)
-            })
-            .unwrap_or(false)
-    }
-
-    fn idle_expired(&self, timeout: Option<Duration>) -> bool {
-        timeout
-            .and_then(|check_interval| {
-                Instant::now()
-                    .checked_duration_since(self.last_used_at)
-                    .map(|dur_since| dur_since >= check_interval)
-            })
-            .unwrap_or(false)
-    }
-
-    fn needs_health_check(&self, timeout: Option<Duration>) -> bool {
-        timeout
-            .and_then(|check_interval| {
-                Instant::now()
-                    .checked_duration_since(self.last_checked_at)
-                    .map(|dur_since| dur_since >= check_interval)
-            })
-            .unwrap_or(true)
-    }
-}
-
-struct PoolInternals<C, E> {
+struct PoolInternals<C> {
     config: InternalConfig,
-    free_conns: Vec<Conn<C, E>>,
+    free_conns: Vec<IdleConn<C>>,
     wait_duration: Duration,
     cleaner_ch: Option<Sender<()>>,
 }
 
 struct PoolState {
-    num_open: AtomicU64,
+    num_open: Arc<AtomicU64>,
     max_lifetime_closed: AtomicU64,
-    max_idle_closed: AtomicU64,
+    max_idle_closed: Arc<AtomicU64>,
     wait_count: AtomicU64,
 }
 
-impl<C, E> Drop for PoolInternals<C, E> {
+impl<C> Drop for PoolInternals<C> {
     fn drop(&mut self) {
         log::debug!("Pool internal drop");
     }
@@ -316,11 +268,7 @@ impl<M: Manager> Pool<M> {
         let max_idle = internals.config.max_idle as usize;
         // Treat max_idle == 0 as unlimited
         if max_idle > 0 && internals.free_conns.len() > max_idle {
-            let closing = internals.free_conns.split_off(max_idle);
-            drop(internals);
-            for conn in closing {
-                conn.close(&self.0.state);
-            }
+            internals.free_conns.truncate(max_idle);
         }
     }
 
@@ -385,17 +333,17 @@ impl<M: Manager> Pool<M> {
         });
 
         let pool_state = PoolState {
-            num_open: AtomicU64::new(0),
+            num_open: Arc::new(AtomicU64::new(0)),
             max_lifetime_closed: AtomicU64::new(0),
             wait_count: AtomicU64::new(0),
-            max_idle_closed: AtomicU64::new(0),
+            max_idle_closed: Arc::new(AtomicU64::new(0)),
         };
 
         let shared = Arc::new(SharedPool {
             config: share_config,
             manager,
             internals,
-            semaphore: Semaphore::new(max_open),
+            semaphore: Arc::new(Semaphore::new(max_open)),
             state: pool_state,
         });
 
@@ -439,16 +387,13 @@ impl<M: Manager> Pool<M> {
     }
 
     async fn get_connection(&self) -> Result<Connection<M>, Error<M::Error>> {
-        let mut c = self.get_or_create_conn().await?;
-        c.last_used_at = Instant::now();
+        let _guard = GaugeGuard::increment(WAIT_COUNT);
+        let c = self.get_or_create_conn().await?;
 
         let conn = Connection {
-            pool: Some(self.clone()),
+            pool: self.clone(),
             conn: Some(c),
         };
-
-        gauge!(ACTIVE_CONNECTIONS).increment(1.0);
-        gauge!(WAIT_COUNT).decrement(1.0);
 
         Ok(conn)
     }
@@ -456,45 +401,40 @@ impl<M: Manager> Pool<M> {
     async fn validate_conn(
         &self,
         internal_config: InternalConfig,
-        conn: &mut Conn<M::Connection, M::Error>,
-    ) -> bool {
-        if conn.brand_new {
-            return true;
+        conn: IdleConn<M::Connection>,
+    ) -> Option<IdleConn<M::Connection>> {
+        if conn.is_brand_new() {
+            return Some(conn);
         }
 
         if conn.expired(internal_config.max_lifetime) {
-            return false;
+            return None;
         }
 
         if conn.idle_expired(internal_config.max_idle_lifetime) {
-            return false;
+            return None;
         }
 
         let needs_health_check = self.0.config.health_check
             && conn.needs_health_check(self.0.config.health_check_interval);
 
         if needs_health_check {
-            let raw = conn.raw.take().unwrap();
-            match self.0.manager.check(raw).await {
-                Ok(raw) => {
-                    conn.last_checked_at = Instant::now();
-                    conn.raw = Some(raw)
-                }
-                Err(_e) => return false,
-            }
+            let (raw, split) = conn.split_raw();
+            let checked_raw = self.0.manager.check(raw).await.ok()?;
+            let mut checked = split.restore(checked_raw);
+            checked.mark_checked();
+            return Some(checked);
         }
-        true
+        Some(conn)
     }
 
-    async fn get_or_create_conn(&self) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
+    async fn get_or_create_conn(&self) -> Result<ActiveConn<M::Connection>, Error<M::Error>> {
         self.0.state.wait_count.fetch_add(1, Ordering::Relaxed);
-        gauge!(WAIT_COUNT).increment(1.0);
-        let wait_start = Instant::now();
+        let wait_guard = DurationHistogramGuard::start(WAIT_DURATION);
 
-        let permit = self
-            .0
-            .semaphore
-            .acquire()
+        let semaphore = Arc::clone(&self.0.semaphore);
+        let permit = semaphore
+            .acquire_owned()
             .await
             .map_err(|_| Error::PoolClosed)?;
 
@@ -502,51 +442,37 @@ impl<M: Manager> Pool<M> {
 
         let mut internals = self.0.internals.lock().await;
 
-        internals.wait_duration += wait_start.elapsed();
-        histogram!(WAIT_DURATION).record(wait_start.elapsed());
+        internals.wait_duration += wait_guard.elapsed();
+        drop(wait_guard);
 
         let conn = internals.free_conns.pop();
         let internal_config = internals.config.clone();
         drop(internals);
 
-        if conn.is_some() {
-            let mut conn = conn.unwrap();
-            if self.validate_conn(internal_config, &mut conn).await {
-                gauge!(IDLE_CONNECTIONS,).decrement(1.0);
-                permit.forget();
-                return Ok(conn);
-            } else {
-                conn.close(&self.0.state);
+        if let Some(conn) = conn {
+            if let Some(valid_conn) = self.validate_conn(internal_config, conn).await {
+                return Ok(valid_conn.into_active(permit));
             }
         }
 
-        let create_r = self.open_new_connection().await;
-
-        if create_r.is_ok() {
-            permit.forget();
-        }
+        let create_r = self.open_new_connection(permit).await;
 
         create_r
     }
 
-    async fn open_new_connection(&self) -> Result<Conn<M::Connection, M::Error>, Error<M::Error>> {
+    async fn open_new_connection(
+        &self,
+        permit: OwnedSemaphorePermit,
+    ) -> Result<ActiveConn<M::Connection>, Error<M::Error>> {
         log::debug!("creating new connection from manager");
         match self.0.manager.connect().await {
             Ok(c) => {
                 self.0.state.num_open.fetch_add(1, Ordering::Relaxed);
-                gauge!(OPEN_CONNECTIONS).increment(1.0);
-                counter!(OPENED_TOTAL).increment(1);
-
-                let conn = Conn {
-                    raw: Some(c),
-                    last_err: Mutex::new(None),
-                    created_at: Instant::now(),
-                    last_used_at: Instant::now(),
-                    last_checked_at: Instant::now(),
-                    brand_new: true,
-                };
-
-                Ok(conn)
+                let state = ConnState::new(
+                    Arc::clone(&self.0.state.num_open),
+                    Arc::clone(&self.0.state.max_idle_closed),
+                );
+                Ok(ActiveConn::new(c, permit, state))
             }
             Err(e) => Err(Error::Inner(e)),
         }
@@ -578,28 +504,20 @@ impl<M: Manager> Pool<M> {
 
 async fn recycle_conn<M: Manager>(
     shared: &Arc<SharedPool<M>>,
-    mut conn: Conn<M::Connection, M::Error>,
+    mut conn: ActiveConn<M::Connection>,
 ) {
     if conn_still_valid(shared, &mut conn) {
-        conn.brand_new = false;
+        conn.set_brand_new(false);
         let internals = shared.internals.lock().await;
-        put_idle_conn(shared, internals, conn);
-    } else {
-        conn.close(&shared.state);
+        put_idle_conn::<M>(internals, conn);
     }
-
-    shared.semaphore.add_permits(1);
 }
 
 fn conn_still_valid<M: Manager>(
     shared: &Arc<SharedPool<M>>,
-    conn: &mut Conn<M::Connection, M::Error>,
+    conn: &mut ActiveConn<M::Connection>,
 ) -> bool {
-    if conn.raw.is_none() {
-        return false;
-    }
-
-    if !shared.manager.validate(conn.raw.as_mut().unwrap()) {
+    if !shared.manager.validate(conn.as_raw_mut()) {
         log::debug!("bad conn when check in");
         return false;
     }
@@ -608,19 +526,15 @@ fn conn_still_valid<M: Manager>(
 }
 
 fn put_idle_conn<M: Manager>(
-    shared: &Arc<SharedPool<M>>,
-    mut internals: MutexGuard<'_, PoolInternals<M::Connection, M::Error>>,
-    conn: Conn<M::Connection, M::Error>,
+    mut internals: MutexGuard<'_, PoolInternals<M::Connection>>,
+    conn: ActiveConn<M::Connection>,
 ) {
+    let idle_conn = conn.into_idle();
     // Treat max_idle == 0 as unlimited idle connections.
     if internals.config.max_idle == 0
         || internals.config.max_idle > internals.free_conns.len() as u64
     {
-        gauge!(IDLE_CONNECTIONS).increment(1.0);
-        internals.free_conns.push(conn);
-        drop(internals);
-    } else {
-        conn.close(&shared.state);
+        internals.free_conns.push(idle_conn);
     }
 }
 
@@ -678,7 +592,7 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
             break;
         }
 
-        if internals.free_conns[i].created_at < expired {
+        if internals.free_conns[i].created_at() < expired {
             let c = internals.free_conns.swap_remove(i);
             closing.push(c);
             continue;
@@ -691,39 +605,37 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
         .state
         .max_lifetime_closed
         .fetch_add(closing.len() as u64, Ordering::Relaxed);
-    for conn in closing {
-        conn.close(&shared.state);
-    }
     true
 }
 
 /// A smart pointer wrapping a connection.
 pub struct Connection<M: Manager> {
-    pool: Option<Pool<M>>,
-    conn: Option<Conn<M::Connection, M::Error>>,
+    pool: Pool<M>,
+    conn: Option<ActiveConn<M::Connection>>,
 }
 
 impl<M: Manager> Connection<M> {
     /// Returns true is the connection is newly established.
     pub fn is_brand_new(&self) -> bool {
-        self.conn.as_ref().unwrap().brand_new
+        self.conn.as_ref().unwrap().is_brand_new()
     }
 
     /// Unwraps the raw database connection.
     pub fn into_inner(mut self) -> M::Connection {
-        self.conn.as_mut().unwrap().raw.take().unwrap()
+        self.conn.take().unwrap().into_raw()
     }
 }
 
 impl<M: Manager> Drop for Connection<M> {
     fn drop(&mut self) {
-        let pool = self.pool.take().unwrap();
-        let conn = self.conn.take().unwrap();
+        let Some(conn) = self.conn.take() else {
+            return;
+        };
 
-        gauge!(ACTIVE_CONNECTIONS).decrement(1.0);
-        // FIXME: No clone!
-        pool.clone().0.manager.spawn_task(async move {
-            recycle_conn(&pool.0, conn).await;
+        let pool = Arc::clone(&self.pool.0);
+
+        self.pool.0.manager.spawn_task(async move {
+            recycle_conn(&pool, conn).await;
         });
     }
 }
@@ -731,12 +643,12 @@ impl<M: Manager> Drop for Connection<M> {
 impl<M: Manager> Deref for Connection<M> {
     type Target = M::Connection;
     fn deref(&self) -> &Self::Target {
-        self.conn.as_ref().unwrap().raw.as_ref().unwrap()
+        self.conn.as_ref().unwrap().as_raw_ref()
     }
 }
 
 impl<M: Manager> DerefMut for Connection<M> {
     fn deref_mut(&mut self) -> &mut M::Connection {
-        self.conn.as_mut().unwrap().raw.as_mut().unwrap()
+        self.conn.as_mut().unwrap().as_raw_mut()
     }
 }
