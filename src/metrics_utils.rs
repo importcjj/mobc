@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    mem::ManuallyDrop,
+    time::{Duration, Instant},
+};
 
 use metrics::{describe_counter, describe_gauge, describe_histogram, gauge, histogram};
 
@@ -59,33 +62,28 @@ impl Drop for GaugeGuard {
 }
 
 pub(crate) struct DurationHistogramGuard {
-    start: Option<Instant>,
+    start: Instant,
     key: &'static str,
 }
 
 impl DurationHistogramGuard {
     pub(crate) fn start(key: &'static str) -> Self {
         Self {
-            start: Some(Instant::now()),
+            start: Instant::now(),
             key,
         }
     }
 
-    pub(crate) fn into_elapsed(mut self) -> Duration {
-        let start = self
-            .start
-            .take()
-            .expect("start time was unset without consuming or dropping the guard");
-        let elapsed = start.elapsed();
-        histogram!(self.key).record(elapsed);
+    pub(crate) fn into_elapsed(self) -> Duration {
+        let this = ManuallyDrop::new(self);
+        let elapsed = this.start.elapsed();
+        histogram!(this.key).record(elapsed);
         elapsed
     }
 }
 
 impl Drop for DurationHistogramGuard {
     fn drop(&mut self) {
-        if let Some(start) = self.start.take() {
-            histogram!(self.key).record(start.elapsed());
-        }
+        histogram!(self.key).record(self.start.elapsed());
     }
 }
