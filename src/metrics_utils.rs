@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    mem::ManuallyDrop,
+    time::{Duration, Instant},
+};
 
 use metrics::{describe_counter, describe_gauge, describe_histogram, gauge, histogram};
 
@@ -71,8 +74,11 @@ impl DurationHistogramGuard {
         }
     }
 
-    pub(crate) fn elapsed(&self) -> Duration {
-        self.start.elapsed()
+    pub(crate) fn into_elapsed(self) -> Duration {
+        let this = ManuallyDrop::new(self);
+        let elapsed = this.start.elapsed();
+        histogram!(this.key).record(elapsed);
+        elapsed
     }
 }
 
