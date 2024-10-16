@@ -2,7 +2,8 @@ use crate::Error;
 use futures_util::{select, FutureExt};
 use std::future::Future;
 use std::time::Duration;
-pub use time::{delay_for, interval};
+
+pub use internal::{delay_for, interval};
 
 pub(crate) async fn timeout<F, T, E>(duration: Duration, f: F) -> Result<T, Error<E>>
 where
@@ -14,7 +15,7 @@ where
     }
 }
 
-mod time {
+mod internal {
     use std::time::Duration;
     use std::time::Instant;
 

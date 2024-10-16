@@ -1,7 +1,7 @@
 //! A batteries included runtime for applications using mobc.
 //! Mobc does not implement runtime, it simply exports runtime.
 
-pub use runtime::{DefaultExecutor, Runtime, TaskExecutor};
+pub use internal::{DefaultExecutor, Runtime, TaskExecutor};
 
 use std::future::Future;
 use std::pin::Pin;
@@ -21,17 +21,17 @@ pub trait Executor: Send + Sync + 'static + Clone {
 }
 
 #[cfg(all(feature = "tokio", not(feature = "async-std")))]
-mod runtime {
+mod internal {
     use super::*;
 
-    /// Wrapper of the Tokio Runtime
+    /// Wrapper of the Tokio Runtime.
     pub struct Runtime {
         rt: tokio::runtime::Runtime,
         spawner: TaskExecutor,
     }
 
     impl Runtime {
-        /// Creates a new Runtime
+        /// Creates a new [`Runtime`].
         pub fn new() -> Option<Self> {
             Some(Runtime {
                 rt: tokio::runtime::Runtime::new().unwrap(),
@@ -39,12 +39,12 @@ mod runtime {
             })
         }
 
-        /// Returns a spawner
+        /// Returns a spawner.
         pub fn handle(&self) -> &TaskExecutor {
             &self.spawner
         }
 
-        /// Run a future to completion on the Tokio runtime. This is the
+        /// Runs a future to completion on the Tokio runtime. This is the
         /// runtime's entry point.
         pub fn block_on<F, T>(&mut self, future: F) -> T
         where
@@ -53,7 +53,7 @@ mod runtime {
             self.rt.block_on(future)
         }
 
-        /// Spawn a future onto the Tokio runtime.
+        /// Spawns a future onto the Tokio runtime.
         pub fn spawn<F, T>(&self, future: F)
         where
             F: Future<Output = T> + Send + 'static,
@@ -63,12 +63,12 @@ mod runtime {
         }
     }
 
-    /// Simple handler for spawning task
+    /// Simple handler for spawning task.
     #[derive(Clone)]
     pub struct TaskExecutor;
 
     impl TaskExecutor {
-        /// Spawn a future onto the Tokio runtime.
+        /// Spawns a future onto the Tokio runtime.
         pub fn spawn<F>(&self, future: F)
         where
             F: Future + Send + 'static,
@@ -96,15 +96,17 @@ mod runtime {
     }
 }
 
-#[cfg(all(feature = "async-std"))]
-mod runtime {
+#[cfg(feature = "async-std")]
+mod internal {
     use super::*;
     use async_std::task;
 
+    /// Simple handler for spawning task.
     #[derive(Clone)]
     pub struct TaskExecutor;
 
     impl TaskExecutor {
+        /// Spawns a future onto async-std runtime.
         pub fn spawn<F>(&self, future: F)
         where
             F: Future + Send + 'static,
@@ -114,17 +116,22 @@ mod runtime {
         }
     }
 
+    /// Wrapper of the async-std runtime.
     pub struct Runtime(TaskExecutor);
 
     impl Runtime {
+        /// Creates a new [`Runtime`].
         pub fn new() -> Option<Self> {
             Some(Runtime(TaskExecutor))
         }
 
+        /// Returns a spawner.
         pub fn handle(&self) -> &TaskExecutor {
             &self.0
         }
 
+        /// Runs a future to completion on the async-std runtime. This is the
+        /// runtime's entry point.
         pub fn block_on<F, T>(&mut self, future: F) -> T
         where
             F: Future<Output = T>,
@@ -132,6 +139,7 @@ mod runtime {
             task::block_on(future)
         }
 
+        /// Spawns a future onto the async-std runtime.
         pub fn spawn<F, T>(&self, future: F)
         where
             F: Future<Output = T> + Send + 'static,
@@ -141,10 +149,12 @@ mod runtime {
         }
     }
 
+    /// The default executor of async-std.
     #[derive(Clone)]
     pub struct DefaultExecutor;
 
     impl DefaultExecutor {
+        /// The default executor of async-std.
         pub fn current() -> Self {
             Self {}
         }

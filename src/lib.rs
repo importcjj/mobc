@@ -454,9 +454,7 @@ impl<M: Manager> Pool<M> {
             }
         }
 
-        let create_r = self.open_new_connection(permit).await;
-
-        create_r
+        self.open_new_connection(permit).await
     }
 
     async fn open_new_connection(
