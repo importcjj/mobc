@@ -15,6 +15,7 @@ documentation = "https://docs.rs/mobc/latest/mobc/"
 [features]
 default = ["tokio", "unstable"]
 unstable = []
+docs = []
 
 [dependencies]
 futures-core = "0.3"
@@ -48,5 +49,5 @@ name = "tide"
 required-features = ["async-std"]
 
 [package.metadata.docs.rs]
-features = ["unstable"]
+features = ["unstable", "docs"]
 rustdoc-args = ["--cfg", "feature=\"unstable\""]
