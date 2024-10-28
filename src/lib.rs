@@ -276,7 +276,7 @@ impl<M: Manager> Pool<M> {
     ///
     /// Expired connections may be closed lazily before reuse.
     ///
-    /// None meas reuse forever.
+    /// None means reuse forever.
     /// Defaults to None.
     ///
     /// # Panics
