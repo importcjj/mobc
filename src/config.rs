@@ -218,7 +218,7 @@ impl<M: Manager> Builder<M> {
     pub fn clean_rate(mut self, clean_rate: Duration) -> Builder<M> {
         assert!(
             clean_rate > Duration::from_secs(0),
-            "connection_timeout must be positive"
+            "clean_rate must be positive"
         );
 
         if clean_rate > Duration::from_secs(1) {
