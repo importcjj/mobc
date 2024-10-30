@@ -134,9 +134,9 @@ Some of the connection pool configurations can be adjusted dynamically. Each con
     - `mobc_pool_connections_open` - Number of currently open Pool Connections
     - `mobc_pool_connections_busy` - Number of currently busy Pool Connections (executing a database query)"
     - `mobc_pool_connections_idle` - Number of currently unused Pool Connections (waiting for the next pool query to run)
-    - `mobc_client_queries_wait` - Number of queries currently waiting for a connection
+    - `mobc_queries_wait` - Number of queries currently waiting for a connection
 - Histograms
-    - `mobc_client_queries_wait_histogram_ms` - Histogram of the wait time of all queries in ms
+    - `mobc_queries_wait_histogram_ms` - Histogram of the wait time of all queries in ms
   
 ## Compatibility
 
