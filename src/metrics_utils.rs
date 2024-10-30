@@ -1,4 +1,9 @@
-use metrics::{describe_counter, describe_gauge, describe_histogram};
+use std::{
+    mem::ManuallyDrop,
+    time::{Duration, Instant},
+};
+
+use metrics::{describe_counter, describe_gauge, describe_histogram, gauge, histogram};
 
 // counters
 pub const OPENED_TOTAL: &str = "mobc_pool_connections_opened_total";
@@ -41,4 +46,48 @@ pub fn describe_metrics() {
         WAIT_DURATION,
         "Histogram of the wait time of all queries in ms"
     );
+}
+
+pub(crate) struct GaugeGuard {
+    key: &'static str,
+}
+
+impl GaugeGuard {
+    pub fn increment(key: &'static str) -> Self {
+        gauge!(key).increment(1.0);
+        Self { key }
+    }
+}
+
+impl Drop for GaugeGuard {
+    fn drop(&mut self) {
+        gauge!(self.key).decrement(1.0);
+    }
+}
+
+pub(crate) struct DurationHistogramGuard {
+    start: Instant,
+    key: &'static str,
+}
+
+impl DurationHistogramGuard {
+    pub(crate) fn start(key: &'static str) -> Self {
+        Self {
+            start: Instant::now(),
+            key,
+        }
+    }
+
+    pub(crate) fn into_elapsed(self) -> Duration {
+        let this = ManuallyDrop::new(self);
+        let elapsed = this.start.elapsed();
+        histogram!(this.key).record(elapsed);
+        elapsed
+    }
+}
+
+impl Drop for DurationHistogramGuard {
+    fn drop(&mut self) {
+        histogram!(self.key).record(self.start.elapsed());
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "mobc"
-version = "0.8.2"
+version = "0.8.5"
 authors = ["importcjj <importcjj@gmail.com>", "Garren Smith <garren.smith@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -15,6 +15,7 @@ documentation = "https://docs.rs/mobc/latest/mobc/"
 [features]
 default = ["tokio", "unstable"]
 unstable = []
+docs = []
 
 [dependencies]
 futures-core = "0.3"
@@ -27,7 +28,7 @@ async-trait = "0.1"
 futures-timer = "3.0.2"
 log = "0.4"
 thiserror = "1.0"
-metrics = "0.18"
+metrics = "0.23.0"
 tracing = { version = "0.1", features = ["attributes"] }
 tracing-subscriber = "0.3.11"
 
@@ -48,5 +49,5 @@ name = "tide"
 required-features = ["async-std"]
 
 [package.metadata.docs.rs]
-features = ["unstable"]
+features = ["unstable", "docs"]
 rustdoc-args = ["--cfg", "feature=\"unstable\""]
