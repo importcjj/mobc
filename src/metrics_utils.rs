@@ -2,6 +2,7 @@ use std::{
     mem::ManuallyDrop,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
+    sync::Arc,
 };
 
 use metrics::{describe_counter, describe_gauge, describe_histogram, gauge, histogram};
@@ -51,7 +52,7 @@ pub fn describe_metrics() {
 
 pub(crate) struct GaugeGuard {
     key: &'static str,
-    already_decremented: AtomicBool,
+    already_decremented: Arc<AtomicBool>,
 }
 
 impl GaugeGuard {
@@ -59,7 +60,7 @@ impl GaugeGuard {
         gauge!(key).increment(1.0);
         Self {
             key,
-            already_decremented: AtomicBool::new(false),
+            already_decremented: Arc::new(AtomicBool::new(false)),
         }
     }
 

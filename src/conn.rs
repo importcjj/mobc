@@ -74,6 +74,7 @@ impl<C> IdleConn<C> {
     }
 
     pub(crate) fn into_active(self, permit: OwnedSemaphorePermit) -> ActiveConn<C> {
+        self._idle_connections_gauge.decrement_now();
         ActiveConn::new(self.inner, permit, self.state)
     }
 
