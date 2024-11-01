@@ -1,5 +1,6 @@
 use std::{
     mem::ManuallyDrop,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
@@ -50,18 +51,30 @@ pub fn describe_metrics() {
 
 pub(crate) struct GaugeGuard {
     key: &'static str,
+    already_decremented: AtomicBool,
 }
 
 impl GaugeGuard {
     pub fn increment(key: &'static str) -> Self {
         gauge!(key).increment(1.0);
-        Self { key }
+        Self {
+            key,
+            already_decremented: AtomicBool::new(false),
+        }
+    }
+
+    pub fn decrement_now(&self) {
+        if !self.already_decremented.swap(true, Ordering::SeqCst) {
+            gauge!(self.key).decrement(1.0);
+        }
     }
 }
 
 impl Drop for GaugeGuard {
     fn drop(&mut self) {
-        gauge!(self.key).decrement(1.0);
+        if !self.already_decremented.load(Ordering::SeqCst) {
+            gauge!(self.key).decrement(1.0);
+        }
     }
 }
 

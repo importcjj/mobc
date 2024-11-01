@@ -32,6 +32,8 @@ impl<C> ActiveConn<C> {
     }
 
     pub(crate) fn into_idle(self) -> IdleConn<C> {
+        self._active_connections_gauge.decrement_now();
+
         IdleConn {
             inner: self.inner,
             state: self.state,
