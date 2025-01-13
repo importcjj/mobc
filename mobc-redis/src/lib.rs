@@ -1,9 +1,9 @@
-pub use redis;
 pub use mobc;
+pub use redis;
 
 use mobc::async_trait;
 use mobc::Manager;
-use redis::aio::Connection;
+use redis::aio::MultiplexedConnection as Connection;
 use redis::{Client, ErrorKind};
 
 pub struct RedisConnectionManager {
@@ -22,7 +22,7 @@ impl Manager for RedisConnectionManager {
     type Error = redis::RedisError;
 
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        let c = self.client.get_async_connection().await?;
+        let c = self.client.get_multiplexed_async_connection().await?;
         Ok(c)
     }
 
@@ -34,5 +34,3 @@ impl Manager for RedisConnectionManager {
         Ok(conn)
     }
 }
-
-
