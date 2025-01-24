@@ -1,6 +1,33 @@
 # CHANGELOG
 
-See [Releases](https://github.com/importcjj/mobc/releases) for the latest change log.
+See [Releases](https://github.com/importcjj/mobc/releases) for the detailed change log and contributors.
+
+## Unreleased
+
+- `mobc-redis`: updated `redis` from 0.24 to 0.28.
+
+## v0.8.5
+
+- Refactored metrics to use RAII to ensure consistency:
+  - Fixed the gauges not being decremented back after fallible operations when they fail.
+  - Fixed some metrics relying on `Conn::close` being manually called.
+- Fixed a misleading typo in a section name in the docs.
+
+## v0.8.4
+
+- Updated `metrics` to 0.22.
+- `mobc-redis`: updated `redis` to 0.24.
+
+## v0.8.3
+
+- Added `Debug` impl for `Pool`.
+- Improved idle connections handling when `max_open` is unlimited.
+- Fixed a bug in idle connections metric.
+
+## v0.8.2
+
+- Fixed `mobc_pool_connections_opened_total` counter being incremented as a gauge and `mobc_pool_connections_open` gauge being incremented as a counter.
+- `mobc-redis`: updated `redis` dependency from 0.22 to 0.23.
 
 ## v0.8.1
 
