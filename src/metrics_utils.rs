@@ -1,9 +1,13 @@
 use std::{
+    any::type_name,
+    marker::PhantomData,
     mem::ManuallyDrop,
     time::{Duration, Instant},
 };
 
 use metrics::{describe_counter, describe_gauge, describe_histogram, gauge, histogram};
+
+use crate::Manager;
 
 // counters
 pub const OPENED_TOTAL: &str = "mobc_pool_connections_opened_total";
@@ -48,45 +52,58 @@ pub fn describe_metrics() {
     );
 }
 
-pub(crate) struct GaugeGuard {
+pub(crate) fn get_manager_type<M: Manager>() -> &'static str {
+    type_name::<M>()
+        .split("::")
+        .last()
+        .expect("we shouldn't get None here")
+}
+
+pub(crate) struct GaugeGuard<M: Manager> {
     key: &'static str,
+    _phantom: PhantomData<M>,
 }
 
-impl GaugeGuard {
+impl<M: Manager> GaugeGuard<M> {
     pub fn increment(key: &'static str) -> Self {
-        gauge!(key).increment(1.0);
-        Self { key }
+        gauge!(key, "manager" => get_manager_type::<M>()).increment(1.0);
+        Self {
+            key,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl Drop for GaugeGuard {
+impl<M: Manager> Drop for GaugeGuard<M> {
     fn drop(&mut self) {
-        gauge!(self.key).decrement(1.0);
+        gauge!(self.key, "manager" => get_manager_type::<M>()).decrement(1.0);
     }
 }
 
-pub(crate) struct DurationHistogramGuard {
+pub(crate) struct DurationHistogramGuard<M: Manager> {
     start: Instant,
     key: &'static str,
+    _phantom: PhantomData<M>,
 }
 
-impl DurationHistogramGuard {
+impl<M: Manager> DurationHistogramGuard<M> {
     pub(crate) fn start(key: &'static str) -> Self {
         Self {
             start: Instant::now(),
             key,
+            _phantom: PhantomData,
         }
     }
 
     pub(crate) fn into_elapsed(self) -> Duration {
         let this = ManuallyDrop::new(self);
         let elapsed = this.start.elapsed();
-        histogram!(this.key).record(elapsed);
+        histogram!(this.key, "manager" => get_manager_type::<M>()).record(elapsed);
         elapsed
     }
 }
 
-impl Drop for DurationHistogramGuard {
+impl<M: Manager> Drop for DurationHistogramGuard<M> {
     fn drop(&mut self) {
         histogram!(self.key).record(self.start.elapsed());
     }
