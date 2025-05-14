@@ -103,7 +103,7 @@ use futures_util::FutureExt;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use metrics::gauge;
-use metrics_utils::DurationHistogramGuard;
+use metrics_utils::{get_manager_type, DurationHistogramGuard};
 pub use spawn::spawn;
 use std::fmt;
 use std::future::Future;
@@ -157,14 +157,14 @@ pub trait Manager: Send + Sync + 'static {
 struct SharedPool<M: Manager> {
     config: ShareConfig,
     manager: M,
-    internals: Mutex<PoolInternals<M::Connection>>,
+    internals: Mutex<PoolInternals<M>>,
     state: PoolState,
     semaphore: Arc<Semaphore>,
 }
 
-struct PoolInternals<C> {
+struct PoolInternals<M: Manager> {
     config: InternalConfig,
-    free_conns: Vec<IdleConn<C>>,
+    free_conns: Vec<IdleConn<M>>,
     wait_duration: Duration,
     cleaner_ch: Option<Sender<()>>,
 }
@@ -176,7 +176,7 @@ struct PoolState {
     wait_count: AtomicU64,
 }
 
-impl<C> Drop for PoolInternals<C> {
+impl<M: Manager> Drop for PoolInternals<M> {
     fn drop(&mut self) {
         log::debug!("Pool internal drop");
     }
@@ -322,7 +322,7 @@ impl<M: Manager> Pool<M> {
             config.max_open as usize
         };
 
-        gauge!(IDLE_CONNECTIONS).set(0.0);
+        gauge!(IDLE_CONNECTIONS, "manager" => get_manager_type::<M>()).set(0.0);
 
         let (share_config, internal_config) = config.split();
         let internals = Mutex::new(PoolInternals {
@@ -387,7 +387,7 @@ impl<M: Manager> Pool<M> {
     }
 
     async fn get_connection(&self) -> Result<Connection<M>, Error<M::Error>> {
-        let _guard = GaugeGuard::increment(WAIT_COUNT);
+        let _guard = GaugeGuard::<M>::increment(WAIT_COUNT);
         let c = self.get_or_create_conn().await?;
 
         let conn = Connection {
@@ -401,8 +401,8 @@ impl<M: Manager> Pool<M> {
     async fn validate_conn(
         &self,
         internal_config: InternalConfig,
-        conn: IdleConn<M::Connection>,
-    ) -> Option<IdleConn<M::Connection>> {
+        conn: IdleConn<M>,
+    ) -> Option<IdleConn<M>> {
         if conn.is_brand_new() {
             return Some(conn);
         }
@@ -428,9 +428,9 @@ impl<M: Manager> Pool<M> {
         Some(conn)
     }
 
-    async fn get_or_create_conn(&self) -> Result<ActiveConn<M::Connection>, Error<M::Error>> {
+    async fn get_or_create_conn(&self) -> Result<ActiveConn<M>, Error<M::Error>> {
         self.0.state.wait_count.fetch_add(1, Ordering::Relaxed);
-        let wait_guard = DurationHistogramGuard::start(WAIT_DURATION);
+        let wait_guard = DurationHistogramGuard::<M>::start(WAIT_DURATION);
 
         let semaphore = Arc::clone(&self.0.semaphore);
         let permit = semaphore
@@ -460,7 +460,7 @@ impl<M: Manager> Pool<M> {
     async fn open_new_connection(
         &self,
         permit: OwnedSemaphorePermit,
-    ) -> Result<ActiveConn<M::Connection>, Error<M::Error>> {
+    ) -> Result<ActiveConn<M>, Error<M::Error>> {
         log::debug!("creating new connection from manager");
         match self.0.manager.connect().await {
             Ok(c) => {
@@ -499,10 +499,7 @@ impl<M: Manager> Pool<M> {
     }
 }
 
-async fn recycle_conn<M: Manager>(
-    shared: &Arc<SharedPool<M>>,
-    mut conn: ActiveConn<M::Connection>,
-) {
+async fn recycle_conn<M: Manager>(shared: &Arc<SharedPool<M>>, mut conn: ActiveConn<M>) {
     if conn_still_valid(shared, &mut conn) {
         conn.set_brand_new(false);
         let internals = shared.internals.lock().await;
@@ -510,10 +507,7 @@ async fn recycle_conn<M: Manager>(
     }
 }
 
-fn conn_still_valid<M: Manager>(
-    shared: &Arc<SharedPool<M>>,
-    conn: &mut ActiveConn<M::Connection>,
-) -> bool {
+fn conn_still_valid<M: Manager>(shared: &Arc<SharedPool<M>>, conn: &mut ActiveConn<M>) -> bool {
     if !shared.manager.validate(conn.as_raw_mut()) {
         log::debug!("bad conn when check in");
         return false;
@@ -522,10 +516,7 @@ fn conn_still_valid<M: Manager>(
     true
 }
 
-fn put_idle_conn<M: Manager>(
-    mut internals: MutexGuard<'_, PoolInternals<M::Connection>>,
-    conn: ActiveConn<M::Connection>,
-) {
+fn put_idle_conn<M: Manager>(mut internals: MutexGuard<'_, PoolInternals<M>>, conn: ActiveConn<M>) {
     let idle_conn = conn.into_idle();
     // Treat max_idle == 0 as unlimited idle connections.
     if internals.config.max_idle == 0
@@ -608,7 +599,7 @@ async fn clean_connection<M: Manager>(shared: &Weak<SharedPool<M>>) -> bool {
 /// A smart pointer wrapping a connection.
 pub struct Connection<M: Manager> {
     pool: Pool<M>,
-    conn: Option<ActiveConn<M::Connection>>,
+    conn: Option<ActiveConn<M>>,
 }
 
 impl<M: Manager> Connection<M> {

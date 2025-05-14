@@ -10,19 +10,27 @@ use std::{
 use metrics::counter;
 use tokio::sync::OwnedSemaphorePermit;
 
-use crate::metrics_utils::{
-    GaugeGuard, ACTIVE_CONNECTIONS, CLOSED_TOTAL, IDLE_CONNECTIONS, OPENED_TOTAL, OPEN_CONNECTIONS,
+use crate::{
+    metrics_utils::{
+        GaugeGuard, ACTIVE_CONNECTIONS, CLOSED_TOTAL, IDLE_CONNECTIONS, OPENED_TOTAL,
+        OPEN_CONNECTIONS,
+    },
+    Manager,
 };
 
-pub(crate) struct ActiveConn<C> {
-    inner: C,
-    state: ConnState,
+pub(crate) struct ActiveConn<M: Manager> {
+    inner: M::Connection,
+    state: ConnState<M>,
     _permit: OwnedSemaphorePermit,
-    _active_connections_gauge: GaugeGuard,
+    _active_connections_gauge: GaugeGuard<M>,
 }
 
-impl<C> ActiveConn<C> {
-    pub(crate) fn new(inner: C, permit: OwnedSemaphorePermit, state: ConnState) -> ActiveConn<C> {
+impl<M: Manager> ActiveConn<M> {
+    pub(crate) fn new(
+        inner: M::Connection,
+        permit: OwnedSemaphorePermit,
+        state: ConnState<M>,
+    ) -> ActiveConn<M> {
         Self {
             inner,
             state,
@@ -31,7 +39,7 @@ impl<C> ActiveConn<C> {
         }
     }
 
-    pub(crate) fn into_idle(self) -> IdleConn<C> {
+    pub(crate) fn into_idle(self) -> IdleConn<M> {
         IdleConn {
             inner: self.inner,
             state: self.state,
@@ -47,31 +55,31 @@ impl<C> ActiveConn<C> {
         self.state.brand_new = brand_new;
     }
 
-    pub(crate) fn into_raw(self) -> C {
+    pub(crate) fn into_raw(self) -> M::Connection {
         self.inner
     }
 
-    pub(crate) fn as_raw_ref(&self) -> &C {
+    pub(crate) fn as_raw_ref(&self) -> &M::Connection {
         &self.inner
     }
 
-    pub(crate) fn as_raw_mut(&mut self) -> &mut C {
+    pub(crate) fn as_raw_mut(&mut self) -> &mut M::Connection {
         &mut self.inner
     }
 }
 
-pub(crate) struct IdleConn<C> {
-    inner: C,
-    state: ConnState,
-    _idle_connections_gauge: GaugeGuard,
+pub(crate) struct IdleConn<M: Manager> {
+    inner: M::Connection,
+    state: ConnState<M>,
+    _idle_connections_gauge: GaugeGuard<M>,
 }
 
-impl<C> IdleConn<C> {
+impl<M: Manager> IdleConn<M> {
     pub(crate) fn is_brand_new(&self) -> bool {
         self.state.brand_new
     }
 
-    pub(crate) fn into_active(self, permit: OwnedSemaphorePermit) -> ActiveConn<C> {
+    pub(crate) fn into_active(self, permit: OwnedSemaphorePermit) -> ActiveConn<M> {
         ActiveConn::new(self.inner, permit, self.state)
     }
 
@@ -113,7 +121,7 @@ impl<C> IdleConn<C> {
         self.state.last_checked_at = Instant::now()
     }
 
-    pub(crate) fn split_raw(self) -> (C, ConnSplit<C>) {
+    pub(crate) fn split_raw(self) -> (M::Connection, ConnSplit<M>) {
         (
             self.inner,
             ConnSplit::new(self.state, self._idle_connections_gauge),
@@ -121,17 +129,17 @@ impl<C> IdleConn<C> {
     }
 }
 
-pub(crate) struct ConnState {
+pub(crate) struct ConnState<M: Manager> {
     pub(crate) created_at: Instant,
     pub(crate) last_used_at: Instant,
     pub(crate) last_checked_at: Instant,
     pub(crate) brand_new: bool,
     total_connections_open: Arc<AtomicU64>,
     total_connections_closed: Arc<AtomicU64>,
-    _open_connections_gauge: GaugeGuard,
+    _open_connections_gauge: GaugeGuard<M>,
 }
 
-impl ConnState {
+impl<M: Manager> ConnState<M> {
     pub(crate) fn new(
         total_connections_open: Arc<AtomicU64>,
         total_connections_closed: Arc<AtomicU64>,
@@ -149,7 +157,7 @@ impl ConnState {
     }
 }
 
-impl Drop for ConnState {
+impl<M: Manager> Drop for ConnState<M> {
     fn drop(&mut self) {
         self.total_connections_open.fetch_sub(1, Ordering::Relaxed);
         self.total_connections_closed
@@ -158,14 +166,14 @@ impl Drop for ConnState {
     }
 }
 
-pub(crate) struct ConnSplit<C> {
-    state: ConnState,
-    gauge: GaugeGuard,
-    _phantom: PhantomData<C>,
+pub(crate) struct ConnSplit<M: Manager> {
+    state: ConnState<M>,
+    gauge: GaugeGuard<M>,
+    _phantom: PhantomData<M>,
 }
 
-impl<C> ConnSplit<C> {
-    fn new(state: ConnState, gauge: GaugeGuard) -> Self {
+impl<M: Manager> ConnSplit<M> {
+    fn new(state: ConnState<M>, gauge: GaugeGuard<M>) -> Self {
         Self {
             state,
             gauge,
@@ -173,7 +181,7 @@ impl<C> ConnSplit<C> {
         }
     }
 
-    pub(crate) fn restore(self, raw: C) -> IdleConn<C> {
+    pub(crate) fn restore(self, raw: M::Connection) -> IdleConn<M> {
         IdleConn {
             inner: raw,
             state: self.state,
