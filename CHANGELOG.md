@@ -2,8 +2,9 @@
 
 See [Releases](https://github.com/importcjj/mobc/releases) for the detailed change log and contributors.
 
-## Unreleased
+## v0.9.0
 
+- `mobc`: updated `metrics` from 0.23 to 0.24.
 - `mobc-redis`: updated `redis` from 0.24 to 0.28.
 
 ## v0.8.5
